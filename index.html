@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Report Checkout Mensili</title>
+<title>Report Checkout e Lavanderia</title>
 <style>
 body{
   font-family: Arial, sans-serif;
-  max-width: 1200px;
+  max-width: 1400px;
   margin: auto;
   padding: 30px;
   background: #f4f4f4;
@@ -18,7 +18,6 @@ body{
   border-radius: 12px;
   box-shadow: 0 0 10px rgba(0,0,0,0.08);
 }
-h1{margin-top:0;}
 .controls{
   display:flex;
   flex-wrap:wrap;
@@ -41,13 +40,11 @@ button{
   border-radius:6px;
   cursor:pointer;
 }
-button.secondary{
-  background:#198754;
-}
+button.secondary{background:#198754;}
 table{
   width:100%;
   border-collapse:collapse;
-  margin-top:20px;
+  margin-top:15px;
   background:white;
 }
 th,td{
@@ -55,29 +52,29 @@ th,td{
   padding:10px;
   text-align:center;
 }
-th{
-  background:#efefef;
-}
-td:first-child, th:first-child{
+th{background:#efefef;}
+td:first-child, th:first-child,
+td:nth-child(2), th:nth-child(2){
   text-align:left;
-  font-weight:bold;
 }
-.message{
-  margin-top:15px;
-  font-weight:bold;
+.message{margin-top:15px;font-weight:bold;}
+.error{color:#b00020;}
+.success{color:#198754;}
+.summary{
+  margin-top:20px;
+  padding:15px;
+  background:#eef6ff;
+  border-radius:8px;
 }
-.error{
-  color:#b00020;
-}
-.success{
-  color:#198754;
+.section-title{
+  margin-top:30px;
 }
 </style>
 </head>
 <body>
 
 <div class="box">
-  <h1>Report Checkout Mensili</h1>
+  <h1>Report Checkout e Lavanderia</h1>
 
   <div class="controls">
     <div>
@@ -90,16 +87,36 @@ td:first-child, th:first-child{
       <input type="date" id="to">
     </div>
 
+    <div>
+      <label>Costo lavanderia totale €</label>
+      <input type="number" id="laundryCost" step="0.01" placeholder="es. 900">
+    </div>
+
     <button onclick="loadReport()">Calcola</button>
     <button class="secondary" onclick="downloadCSV()">Scarica CSV</button>
   </div>
 
   <div id="message" class="message"></div>
-  <div id="table"></div>
+  <div id="summary" class="summary" style="display:none;"></div>
+
+  <h2 class="section-title">Report per camere</h2>
+  <div id="roomTable"></div>
+
+  <h2 class="section-title">Report per strutture</h2>
+  <div id="structureTable"></div>
 </div>
 
 <script>
 let currentData = null;
+let currentLaundryCost = 0;
+let currentCostPerCheckout = 0;
+
+function euro(value){
+  return new Intl.NumberFormat("it-IT", {
+    style: "currency",
+    currency: "EUR"
+  }).format(value || 0);
+}
 
 function setDefaultDates(){
   const today = new Date();
@@ -112,8 +129,12 @@ function setDefaultDates(){
 async function loadReport(){
   const from = document.getElementById("from").value;
   const to = document.getElementById("to").value;
+  const laundryCost = parseFloat(document.getElementById("laundryCost").value || "0");
+
   const message = document.getElementById("message");
-  const table = document.getElementById("table");
+  const roomTable = document.getElementById("roomTable");
+  const structureTable = document.getElementById("structureTable");
+  const summary = document.getElementById("summary");
 
   if(!from || !to){
     message.className = "message error";
@@ -123,7 +144,9 @@ async function loadReport(){
 
   message.className = "message";
   message.innerText = "Caricamento dati da CiaoBooking...";
-  table.innerHTML = "";
+  roomTable.innerHTML = "";
+  structureTable.innerHTML = "";
+  summary.style.display = "none";
 
   try{
     const res = await fetch(`/api/report?from=${from}&to=${to}`);
@@ -134,7 +157,12 @@ async function loadReport(){
     }
 
     currentData = data;
-    renderTable(data);
+    currentLaundryCost = laundryCost;
+    currentCostPerCheckout = data.totalCheckout > 0 ? laundryCost / data.totalCheckout : 0;
+
+    renderSummary(data, laundryCost, currentCostPerCheckout);
+    renderRoomTable(data, currentCostPerCheckout);
+    renderStructureTable(data, currentCostPerCheckout);
 
     message.className = "message success";
     message.innerText = "Report caricato correttamente.";
@@ -144,29 +172,73 @@ async function loadReport(){
   }
 }
 
-function renderTable(data){
-  let html = "<table><thead><tr><th>Camera</th>";
+function renderSummary(data, laundryCost, costPerCheckout){
+  const summary = document.getElementById("summary");
+  summary.style.display = "block";
+
+  summary.innerHTML = `
+    <strong>Totale checkout:</strong> ${data.totalCheckout}<br>
+    <strong>Costo lavanderia totale:</strong> ${euro(laundryCost)}<br>
+    <strong>Costo medio per checkout:</strong> ${euro(costPerCheckout)}
+  `;
+}
+
+function renderRoomTable(data, costPerCheckout){
+  let html = "<table><thead><tr><th>Struttura</th><th>Camera</th>";
 
   data.months.forEach(m => {
     html += `<th>${m.label}</th>`;
   });
 
-  html += "<th>Totale</th></tr></thead><tbody>";
+  html += "<th>Totale checkout</th><th>Costo lavanderia</th></tr></thead><tbody>";
 
   if(data.rows.length === 0){
-    html += `<tr><td colspan="${data.months.length + 2}">Nessun checkout trovato nel periodo selezionato.</td></tr>`;
+    html += `<tr><td colspan="${data.months.length + 4}">Nessun checkout trovato nel periodo selezionato.</td></tr>`;
   }
 
   data.rows.forEach(row => {
-    html += `<tr><td>${row.camera}</td>`;
+    const cost = row.total * costPerCheckout;
+
+    html += `<tr><td>${row.struttura}</td><td>${row.camera}</td>`;
+
     row.values.forEach(v => {
       html += `<td>${v}</td>`;
     });
-    html += `<td><strong>${row.total}</strong></td></tr>`;
+
+    html += `<td><strong>${row.total}</strong></td><td><strong>${euro(cost)}</strong></td></tr>`;
   });
 
   html += "</tbody></table>";
-  document.getElementById("table").innerHTML = html;
+  document.getElementById("roomTable").innerHTML = html;
+}
+
+function renderStructureTable(data, costPerCheckout){
+  let html = "<table><thead><tr><th>Struttura</th>";
+
+  data.months.forEach(m => {
+    html += `<th>${m.label}</th>`;
+  });
+
+  html += "<th>Totale checkout</th><th>Costo lavanderia</th></tr></thead><tbody>";
+
+  if(!data.structures || data.structures.length === 0){
+    html += `<tr><td colspan="${data.months.length + 3}">Nessuna struttura trovata nel periodo selezionato.</td></tr>`;
+  }
+
+  (data.structures || []).forEach(row => {
+    const cost = row.total * costPerCheckout;
+
+    html += `<tr><td>${row.struttura}</td>`;
+
+    row.values.forEach(v => {
+      html += `<td>${v}</td>`;
+    });
+
+    html += `<td><strong>${row.total}</strong></td><td><strong>${euro(cost)}</strong></td></tr>`;
+  });
+
+  html += "</tbody></table>";
+  document.getElementById("structureTable").innerHTML = html;
 }
 
 function downloadCSV(){
@@ -175,18 +247,46 @@ function downloadCSV(){
     return;
   }
 
-  const headers = ["Camera", ...currentData.months.map(m => m.label), "Totale"];
-  const lines = [headers.join(";")];
+  const lines = [];
+
+  lines.push("REPORT PER CAMERE");
+  lines.push(["Struttura", "Camera", ...currentData.months.map(m => m.label), "Totale checkout", "Costo lavanderia"].join(";"));
 
   currentData.rows.forEach(row => {
-    lines.push([row.camera, ...row.values, row.total].join(";"));
+    const cost = row.total * currentCostPerCheckout;
+    lines.push([
+      row.struttura,
+      row.camera,
+      ...row.values,
+      row.total,
+      cost.toFixed(2).replace(".", ",")
+    ].join(";"));
   });
+
+  lines.push("");
+  lines.push("REPORT PER STRUTTURE");
+  lines.push(["Struttura", ...currentData.months.map(m => m.label), "Totale checkout", "Costo lavanderia"].join(";"));
+
+  (currentData.structures || []).forEach(row => {
+    const cost = row.total * currentCostPerCheckout;
+    lines.push([
+      row.struttura,
+      ...row.values,
+      row.total,
+      cost.toFixed(2).replace(".", ",")
+    ].join(";"));
+  });
+
+  lines.push("");
+  lines.push(["Totale checkout", currentData.totalCheckout].join(";"));
+  lines.push(["Costo lavanderia totale", currentLaundryCost.toFixed(2).replace(".", ",")].join(";"));
+  lines.push(["Costo medio per checkout", currentCostPerCheckout.toFixed(2).replace(".", ",")].join(";"));
 
   const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8;"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "report-checkout.csv";
+  a.download = "report-checkout-lavanderia.csv";
   a.click();
   URL.revokeObjectURL(url);
 }
