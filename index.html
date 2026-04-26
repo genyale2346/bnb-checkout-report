@@ -76,7 +76,7 @@ td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left;}
 <script>
 let currentData = null;
 let currentLaundryCost = 0;
-let currentCostPerCheckout = 0;
+let currentQuotaPerCamera = 0;
 
 function euro(value){
   return new Intl.NumberFormat("it-IT", {
@@ -95,7 +95,6 @@ function formatDateLocal(date){
 function getSelectedPeriod(){
   const year = Number(document.getElementById("yearSelect").value);
   const month = Number(document.getElementById("monthSelect").value);
-
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
 
@@ -113,8 +112,7 @@ function costStorageKey(){
 }
 
 function saveLaundryCost(){
-  const value = document.getElementById("laundryCost").value;
-  localStorage.setItem(costStorageKey(), value);
+  localStorage.setItem(costStorageKey(), document.getElementById("laundryCost").value);
 }
 
 function loadSavedLaundryCost(){
@@ -166,11 +164,13 @@ async function loadReport(){
 
     currentData = data;
     currentLaundryCost = laundryCost;
-    currentCostPerCheckout = data.totalCheckout > 0 ? laundryCost / data.totalCheckout : 0;
 
-    renderSummary(data, laundryCost, currentCostPerCheckout, p);
-    renderRoomTable(data, currentCostPerCheckout);
-    renderStructureTable(data, currentCostPerCheckout);
+    const numeroCamere = data.rows.length;
+    currentQuotaPerCamera = numeroCamere > 0 ? laundryCost / numeroCamere : 0;
+
+    renderSummary(data, laundryCost, currentQuotaPerCamera, p);
+    renderRoomTable(data, currentQuotaPerCamera);
+    renderStructureTable(data, currentQuotaPerCamera);
 
     message.className = "message success";
     message.innerText = "Report caricato correttamente.";
@@ -180,7 +180,7 @@ async function loadReport(){
   }
 }
 
-function renderSummary(data, laundryCost, costPerCheckout, period){
+function renderSummary(data, laundryCost, quotaPerCamera, period){
   const monthName = document.getElementById("monthSelect").options[period.month].text;
   const summary = document.getElementById("summary");
   summary.style.display = "block";
@@ -196,33 +196,36 @@ function renderSummary(data, laundryCost, costPerCheckout, period){
         <td>${data.totalCheckout}</td>
       </tr>
       <tr>
+        <td><strong>Numero camere conteggiate</strong></td>
+        <td>${data.rows.length}</td>
+      </tr>
+      <tr>
         <td><strong>Costo lavanderia totale</strong></td>
         <td>${euro(laundryCost)}</td>
       </tr>
       <tr>
-        <td><strong>Costo unitario lavaggio generale</strong></td>
-        <td><strong>${euro(costPerCheckout)}</strong></td>
+        <td><strong>Quota lavanderia per camera</strong></td>
+        <td><strong>${euro(quotaPerCamera)}</strong></td>
       </tr>
     </table>
   `;
 }
 
-function renderRoomTable(data, costPerCheckout){
+function renderRoomTable(data, quotaPerCamera){
   let html = "<table><thead><tr><th>Struttura</th><th>Camera</th>";
 
   data.months.forEach(m => {
     html += `<th>${m.label}</th>`;
   });
 
-  html += "<th>Totale checkout</th><th>Costo lavanderia camera</th><th>Costo medio camera</th></tr></thead><tbody>";
+  html += "<th>Totale checkout</th><th>Quota lavanderia camera</th><th>Costo medio lavata camera</th></tr></thead><tbody>";
 
   if(data.rows.length === 0){
     html += `<tr><td colspan="${data.months.length + 5}">Nessun checkout trovato nel periodo selezionato.</td></tr>`;
   }
 
   data.rows.forEach(row => {
-    const cost = row.total * costPerCheckout;
-    const averageCameraCost = row.total > 0 ? cost / row.total : 0;
+    const costoMedioLavata = row.total > 0 ? quotaPerCamera / row.total : 0;
 
     html += `<tr><td>${row.struttura}</td><td>${row.camera}</td>`;
 
@@ -231,30 +234,40 @@ function renderRoomTable(data, costPerCheckout){
     });
 
     html += `<td><strong>${row.total}</strong></td>`;
-    html += `<td><strong>${euro(cost)}</strong></td>`;
-    html += `<td><strong>${euro(averageCameraCost)}</strong></td></tr>`;
+    html += `<td><strong>${euro(quotaPerCamera)}</strong></td>`;
+    html += `<td><strong>${euro(costoMedioLavata)}</strong></td></tr>`;
   });
 
   html += "</tbody></table>";
   document.getElementById("roomTable").innerHTML = html;
 }
 
-function renderStructureTable(data, costPerCheckout){
+function renderStructureTable(data, quotaPerCamera){
+  const camerePerStruttura = {};
+
+  data.rows.forEach(row => {
+    if(!camerePerStruttura[row.struttura]){
+      camerePerStruttura[row.struttura] = 0;
+    }
+    camerePerStruttura[row.struttura]++;
+  });
+
   let html = "<table><thead><tr><th>Struttura</th>";
 
   data.months.forEach(m => {
     html += `<th>${m.label}</th>`;
   });
 
-  html += "<th>Totale checkout</th><th>Costo lavanderia struttura</th><th>Costo medio struttura</th></tr></thead><tbody>";
+  html += "<th>Totale checkout</th><th>Camere conteggiate</th><th>Quota lavanderia struttura</th><th>Costo medio lavata struttura</th></tr></thead><tbody>";
 
   if(!data.structures || data.structures.length === 0){
-    html += `<tr><td colspan="${data.months.length + 4}">Nessuna struttura trovata nel periodo selezionato.</td></tr>`;
+    html += `<tr><td colspan="${data.months.length + 5}">Nessuna struttura trovata nel periodo selezionato.</td></tr>`;
   }
 
   (data.structures || []).forEach(row => {
-    const cost = row.total * costPerCheckout;
-    const averageStructureCost = row.total > 0 ? cost / row.total : 0;
+    const numeroCamereStruttura = camerePerStruttura[row.struttura] || 0;
+    const quotaStruttura = quotaPerCamera * numeroCamereStruttura;
+    const costoMedioStruttura = row.total > 0 ? quotaStruttura / row.total : 0;
 
     html += `<tr><td>${row.struttura}</td>`;
 
@@ -263,8 +276,9 @@ function renderStructureTable(data, costPerCheckout){
     });
 
     html += `<td><strong>${row.total}</strong></td>`;
-    html += `<td><strong>${euro(cost)}</strong></td>`;
-    html += `<td><strong>${euro(averageStructureCost)}</strong></td></tr>`;
+    html += `<td><strong>${numeroCamereStruttura}</strong></td>`;
+    html += `<td><strong>${euro(quotaStruttura)}</strong></td>`;
+    html += `<td><strong>${euro(costoMedioStruttura)}</strong></td></tr>`;
   });
 
   html += "</tbody></table>";
@@ -279,7 +293,6 @@ function downloadCSV(){
 
   const p = getSelectedPeriod();
   const monthName = document.getElementById("monthSelect").options[p.month].text;
-
   const lines = [];
 
   lines.push(`REPORT ${monthName} ${p.year}`);
@@ -291,22 +304,29 @@ function downloadCSV(){
     "Camera",
     ...currentData.months.map(m => m.label),
     "Totale checkout",
-    "Costo lavanderia camera",
-    "Costo medio camera"
+    "Quota lavanderia camera",
+    "Costo medio lavata camera"
   ].join(";"));
 
   currentData.rows.forEach(row => {
-    const cost = row.total * currentCostPerCheckout;
-    const averageCameraCost = row.total > 0 ? cost / row.total : 0;
+    const costoMedioLavata = row.total > 0 ? currentQuotaPerCamera / row.total : 0;
 
     lines.push([
       row.struttura,
       row.camera,
       ...row.values,
       row.total,
-      cost.toFixed(2).replace(".", ","),
-      averageCameraCost.toFixed(2).replace(".", ",")
+      currentQuotaPerCamera.toFixed(2).replace(".", ","),
+      costoMedioLavata.toFixed(2).replace(".", ",")
     ].join(";"));
+  });
+
+  const camerePerStruttura = {};
+  currentData.rows.forEach(row => {
+    if(!camerePerStruttura[row.struttura]){
+      camerePerStruttura[row.struttura] = 0;
+    }
+    camerePerStruttura[row.struttura]++;
   });
 
   lines.push("");
@@ -315,27 +335,31 @@ function downloadCSV(){
     "Struttura",
     ...currentData.months.map(m => m.label),
     "Totale checkout",
-    "Costo lavanderia struttura",
-    "Costo medio struttura"
+    "Camere conteggiate",
+    "Quota lavanderia struttura",
+    "Costo medio lavata struttura"
   ].join(";"));
 
   (currentData.structures || []).forEach(row => {
-    const cost = row.total * currentCostPerCheckout;
-    const averageStructureCost = row.total > 0 ? cost / row.total : 0;
+    const numeroCamereStruttura = camerePerStruttura[row.struttura] || 0;
+    const quotaStruttura = currentQuotaPerCamera * numeroCamereStruttura;
+    const costoMedioStruttura = row.total > 0 ? quotaStruttura / row.total : 0;
 
     lines.push([
       row.struttura,
       ...row.values,
       row.total,
-      cost.toFixed(2).replace(".", ","),
-      averageStructureCost.toFixed(2).replace(".", ",")
+      numeroCamereStruttura,
+      quotaStruttura.toFixed(2).replace(".", ","),
+      costoMedioStruttura.toFixed(2).replace(".", ",")
     ].join(";"));
   });
 
   lines.push("");
   lines.push(["Totale checkout", currentData.totalCheckout].join(";"));
+  lines.push(["Numero camere conteggiate", currentData.rows.length].join(";"));
   lines.push(["Costo lavanderia totale", currentLaundryCost.toFixed(2).replace(".", ",")].join(";"));
-  lines.push(["Costo unitario lavaggio generale", currentCostPerCheckout.toFixed(2).replace(".", ",")].join(";"));
+  lines.push(["Quota lavanderia per camera", currentQuotaPerCamera.toFixed(2).replace(".", ",")].join(";"));
 
   const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8;"});
   const url = URL.createObjectURL(blob);
