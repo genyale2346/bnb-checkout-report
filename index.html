@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Checkout</title>
+<style>
+body{
+font-family:Arial, sans-serif;
+max-width:1100px;
+margin:auto;
+padding:30px;
+background:#f5f5f5;
+}
+.box{
+background:white;
+padding:25px;
+border-radius:12px;
+box-shadow:0 0 10px rgba(0,0,0,0.08);
+}
+h1{margin-top:0;}
+input,button{
+padding:10px;
+margin:5px;
+font-size:16px;
+}
+button{
+background:#0d6efd;
+color:white;
+border:none;
+border-radius:6px;
+cursor:pointer;
+}
+table{
+width:100%;
+border-collapse:collapse;
+margin-top:20px;
+background:white;
+}
+th,td{
+border:1px solid #ddd;
+padding:10px;
+text-align:center;
+}
+th{
+background:#efefef;
+}
+</style>
+</head>
+<body>
+
+<div class="box">
+<h1>Report Checkout Mensili</h1>
+
+<label>Dal:</label>
+<input type="date">
+
+<label>Al:</label>
+<input type="date">
+
+<button>Calcola</button>
+
+<table>
+<tr>
+<th>Camera</th>
+<th>Gen</th>
+<th>Feb</th>
+<th>Mar</th>
+<th>Apr</th>
+<th>Mag</th>
+<th>Totale</th>
+</tr>
+
+<tr>
+<td>Camera Demo</td>
+<td>2</td>
+<td>4</td>
+<td>3</td>
+<td>5</td>
+<td>1</td>
+<td>15</td>
+</tr>
+
+</table>
+</div>
+
+</body>
+</html>
