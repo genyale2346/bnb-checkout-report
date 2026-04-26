@@ -117,7 +117,7 @@ async function fetchReservations(from, to) {
     const res = await fetch(url, {
       headers: {
         "Accept": "application/json",
-        "token": token
+        "Authorization": `Bearer ${token}
       }
     });
 
