@@ -5,71 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Report Checkout e Lavanderia</title>
 <style>
-body{
-  font-family: Arial, sans-serif;
-  max-width: 1400px;
-  margin: auto;
-  padding: 30px;
-  background: #f4f4f4;
-}
-.box{
-  background: white;
-  padding: 25px;
-  border-radius: 12px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.08);
-}
-.controls{
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
-  align-items:end;
-}
-label{
-  display:block;
-  font-weight:bold;
-  margin-bottom:4px;
-}
-input,button,select{
-  padding:10px;
-  font-size:16px;
-}
-button{
-  background:#0d6efd;
-  color:white;
-  border:none;
-  border-radius:6px;
-  cursor:pointer;
-}
+body{font-family:Arial,sans-serif;max-width:1400px;margin:auto;padding:30px;background:#f4f4f4;}
+.box{background:white;padding:25px;border-radius:12px;box-shadow:0 0 10px rgba(0,0,0,0.08);}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end;}
+label{display:block;font-weight:bold;margin-bottom:4px;}
+input,button,select{padding:10px;font-size:16px;}
+button{background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;}
 button.secondary{background:#198754;}
 button.month{background:#6f42c1;}
-table{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:15px;
-  background:white;
-}
-th,td{
-  border:1px solid #ddd;
-  padding:10px;
-  text-align:center;
-}
+table{width:100%;border-collapse:collapse;margin-top:15px;background:white;}
+th,td{border:1px solid #ddd;padding:10px;text-align:center;}
 th{background:#efefef;}
-td:first-child, th:first-child,
-td:nth-child(2), th:nth-child(2){
-  text-align:left;
-}
+td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left;}
 .message{margin-top:15px;font-weight:bold;}
 .error{color:#b00020;}
 .success{color:#198754;}
-.summary{
-  margin-top:20px;
-  padding:15px;
-  background:#eef6ff;
-  border-radius:8px;
-}
-.section-title{
-  margin-top:30px;
-}
+.summary{margin-top:20px;padding:15px;background:#eef6ff;border-radius:8px;}
+.section-title{margin-top:30px;}
 </style>
 </head>
 <body>
@@ -78,7 +30,6 @@ td:nth-child(2), th:nth-child(2){
   <h1>Report Checkout e Lavanderia</h1>
 
   <div class="controls">
-
     <div>
       <label>Anno</label>
       <select id="yearSelect"></select>
@@ -238,9 +189,20 @@ function renderSummary(data, laundryCost, costPerCheckout){
   summary.style.display = "block";
 
   summary.innerHTML = `
-    <strong>Totale checkout:</strong> ${data.totalCheckout}<br>
-    <strong>Costo lavanderia totale:</strong> ${euro(laundryCost)}<br>
-    <strong>Costo medio per checkout:</strong> ${euro(costPerCheckout)}
+    <table>
+      <tr>
+        <td><strong>Totale checkout</strong></td>
+        <td>${data.totalCheckout}</td>
+      </tr>
+      <tr>
+        <td><strong>Costo lavanderia totale</strong></td>
+        <td>${euro(laundryCost)}</td>
+      </tr>
+      <tr>
+        <td><strong>Costo unitario lavaggio generale</strong></td>
+        <td><strong>${euro(costPerCheckout)}</strong></td>
+      </tr>
+    </table>
   `;
 }
 
@@ -251,14 +213,15 @@ function renderRoomTable(data, costPerCheckout){
     html += `<th>${m.label}</th>`;
   });
 
-  html += "<th>Totale checkout</th><th>Costo lavanderia</th></tr></thead><tbody>";
+  html += "<th>Totale checkout</th><th>Costo lavanderia camera</th><th>Costo medio camera</th></tr></thead><tbody>";
 
   if(data.rows.length === 0){
-    html += `<tr><td colspan="${data.months.length + 4}">Nessun checkout trovato nel periodo selezionato.</td></tr>`;
+    html += `<tr><td colspan="${data.months.length + 5}">Nessun checkout trovato nel periodo selezionato.</td></tr>`;
   }
 
   data.rows.forEach(row => {
     const cost = row.total * costPerCheckout;
+    const averageCameraCost = row.total > 0 ? cost / row.total : 0;
 
     html += `<tr><td>${row.struttura}</td><td>${row.camera}</td>`;
 
@@ -266,7 +229,9 @@ function renderRoomTable(data, costPerCheckout){
       html += `<td>${v}</td>`;
     });
 
-    html += `<td><strong>${row.total}</strong></td><td><strong>${euro(cost)}</strong></td></tr>`;
+    html += `<td><strong>${row.total}</strong></td>`;
+    html += `<td><strong>${euro(cost)}</strong></td>`;
+    html += `<td><strong>${euro(averageCameraCost)}</strong></td></tr>`;
   });
 
   html += "</tbody></table>";
@@ -280,14 +245,15 @@ function renderStructureTable(data, costPerCheckout){
     html += `<th>${m.label}</th>`;
   });
 
-  html += "<th>Totale checkout</th><th>Costo lavanderia</th></tr></thead><tbody>";
+  html += "<th>Totale checkout</th><th>Costo lavanderia struttura</th><th>Costo medio struttura</th></tr></thead><tbody>";
 
   if(!data.structures || data.structures.length === 0){
-    html += `<tr><td colspan="${data.months.length + 3}">Nessuna struttura trovata nel periodo selezionato.</td></tr>`;
+    html += `<tr><td colspan="${data.months.length + 4}">Nessuna struttura trovata nel periodo selezionato.</td></tr>`;
   }
 
   (data.structures || []).forEach(row => {
     const cost = row.total * costPerCheckout;
+    const averageStructureCost = row.total > 0 ? cost / row.total : 0;
 
     html += `<tr><td>${row.struttura}</td>`;
 
@@ -295,7 +261,9 @@ function renderStructureTable(data, costPerCheckout){
       html += `<td>${v}</td>`;
     });
 
-    html += `<td><strong>${row.total}</strong></td><td><strong>${euro(cost)}</strong></td></tr>`;
+    html += `<td><strong>${row.total}</strong></td>`;
+    html += `<td><strong>${euro(cost)}</strong></td>`;
+    html += `<td><strong>${euro(averageStructureCost)}</strong></td></tr>`;
   });
 
   html += "</tbody></table>";
@@ -311,37 +279,56 @@ function downloadCSV(){
   const lines = [];
 
   lines.push("REPORT PER CAMERE");
-  lines.push(["Struttura", "Camera", ...currentData.months.map(m => m.label), "Totale checkout", "Costo lavanderia"].join(";"));
+  lines.push([
+    "Struttura",
+    "Camera",
+    ...currentData.months.map(m => m.label),
+    "Totale checkout",
+    "Costo lavanderia camera",
+    "Costo medio camera"
+  ].join(";"));
 
   currentData.rows.forEach(row => {
     const cost = row.total * currentCostPerCheckout;
+    const averageCameraCost = row.total > 0 ? cost / row.total : 0;
+
     lines.push([
       row.struttura,
       row.camera,
       ...row.values,
       row.total,
-      cost.toFixed(2).replace(".", ",")
+      cost.toFixed(2).replace(".", ","),
+      averageCameraCost.toFixed(2).replace(".", ",")
     ].join(";"));
   });
 
   lines.push("");
   lines.push("REPORT PER STRUTTURE");
-  lines.push(["Struttura", ...currentData.months.map(m => m.label), "Totale checkout", "Costo lavanderia"].join(";"));
+  lines.push([
+    "Struttura",
+    ...currentData.months.map(m => m.label),
+    "Totale checkout",
+    "Costo lavanderia struttura",
+    "Costo medio struttura"
+  ].join(";"));
 
   (currentData.structures || []).forEach(row => {
     const cost = row.total * currentCostPerCheckout;
+    const averageStructureCost = row.total > 0 ? cost / row.total : 0;
+
     lines.push([
       row.struttura,
       ...row.values,
       row.total,
-      cost.toFixed(2).replace(".", ",")
+      cost.toFixed(2).replace(".", ","),
+      averageStructureCost.toFixed(2).replace(".", ",")
     ].join(";"));
   });
 
   lines.push("");
   lines.push(["Totale checkout", currentData.totalCheckout].join(";"));
   lines.push(["Costo lavanderia totale", currentLaundryCost.toFixed(2).replace(".", ",")].join(";"));
-  lines.push(["Costo medio per checkout", currentCostPerCheckout.toFixed(2).replace(".", ",")].join(";"));
+  lines.push(["Costo unitario lavaggio generale", currentCostPerCheckout.toFixed(2).replace(".", ",")].join(";"));
 
   const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8;"});
   const url = URL.createObjectURL(blob);
