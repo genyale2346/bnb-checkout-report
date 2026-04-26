@@ -58,6 +58,11 @@ function getPropertyName(r) {
   );
 }
 
+function isExcluded(camera, struttura) {
+  const text = `${camera} ${struttura}`.toLowerCase();
+  return text.includes("claudia") || text.includes("lory");
+}
+
 async function getToken() {
   const now = Math.floor(Date.now() / 1000);
 
@@ -155,6 +160,11 @@ app.get("/api/report", async (req, res) => {
 
       const camera = getRoomName(r);
       const struttura = getPropertyName(r);
+
+      if (isExcluded(camera, struttura)) {
+        continue;
+      }
+
       const mk = monthKey(checkout);
       const roomKey = `${struttura}|||${camera}`;
 
