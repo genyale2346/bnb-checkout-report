@@ -1,5 +1,4 @@
 const express = require("express");
-const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -58,6 +57,17 @@ function getPropertyName(r) {
   );
 }
 
+function isExcludedRoomOrProperty(camera, struttura) {
+  const text = `${camera} ${struttura}`.toLowerCase();
+
+  return (
+    text.includes("claudia") ||
+    text.includes("lory") ||
+    text.includes("yes i know my room - claudia") ||
+    text.includes("yes i know my room - claudia & lory")
+  );
+}
+
 async function getToken() {
   const now = Math.floor(Date.now() / 1000);
 
@@ -107,14 +117,14 @@ async function fetchReservations(from, to) {
     const res = await fetch(url, {
       headers: {
         "Accept": "application/json",
-        "Authorization": `Bearer ${token}`
+        "token": token
       }
     });
 
     const json = await res.json();
 
     if (!res.ok) {
-      throw new Error("Errore CiaoBooking HTTP " + res.status + ": " + JSON.stringify(json));
+      throw new Error("Errore lettura prenotazioni CiaoBooking");
     }
 
     const rows = json.data?.collection || [];
@@ -155,6 +165,11 @@ app.get("/api/report", async (req, res) => {
 
       const camera = getRoomName(r);
       const struttura = getPropertyName(r);
+
+      if (isExcludedRoomOrProperty(camera, struttura)) {
+        continue;
+      }
+
       const mk = monthKey(checkout);
       const roomKey = `${struttura}|||${camera}`;
 
