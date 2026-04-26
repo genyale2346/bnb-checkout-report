@@ -105,7 +105,7 @@ async function fetchReservations(from, to) {
     const json = await res.json();
 
     if (!res.ok) {
-      throw new Error("Errore lettura prenotazioni CiaoBooking");
+      throw new Error("Errore CiaoBooking HTTP " + res.status + ": " + JSON.stringify(json));
     }
 
     const rows = json.data?.collection || [];
