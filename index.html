@@ -29,7 +29,7 @@ label{
   font-weight:bold;
   margin-bottom:4px;
 }
-input,button{
+input,button,select{
   padding:10px;
   font-size:16px;
 }
@@ -41,6 +41,7 @@ button{
   cursor:pointer;
 }
 button.secondary{background:#198754;}
+button.month{background:#6f42c1;}
 table{
   width:100%;
   border-collapse:collapse;
@@ -77,6 +78,32 @@ td:nth-child(2), th:nth-child(2){
   <h1>Report Checkout e Lavanderia</h1>
 
   <div class="controls">
+
+    <div>
+      <label>Anno</label>
+      <select id="yearSelect"></select>
+    </div>
+
+    <div>
+      <label>Mese</label>
+      <select id="monthSelect">
+        <option value="0">Gennaio</option>
+        <option value="1">Febbraio</option>
+        <option value="2">Marzo</option>
+        <option value="3">Aprile</option>
+        <option value="4">Maggio</option>
+        <option value="5">Giugno</option>
+        <option value="6">Luglio</option>
+        <option value="7">Agosto</option>
+        <option value="8">Settembre</option>
+        <option value="9">Ottobre</option>
+        <option value="10">Novembre</option>
+        <option value="11">Dicembre</option>
+      </select>
+    </div>
+
+    <button class="month" onclick="useSelectedMonth()">Usa mese</button>
+
     <div>
       <label>Dal</label>
       <input type="date" id="from">
@@ -118,12 +145,46 @@ function euro(value){
   }).format(value || 0);
 }
 
+function formatDateLocal(date){
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function setupMonthSelectors(){
+  const yearSelect = document.getElementById("yearSelect");
+  const today = new Date();
+  const currentYear = today.getFullYear();
+
+  for(let y = currentYear - 3; y <= currentYear + 1; y++){
+    const option = document.createElement("option");
+    option.value = y;
+    option.textContent = y;
+    if(y === currentYear) option.selected = true;
+    yearSelect.appendChild(option);
+  }
+
+  document.getElementById("monthSelect").value = today.getMonth();
+}
+
+function useSelectedMonth(){
+  const year = Number(document.getElementById("yearSelect").value);
+  const month = Number(document.getElementById("monthSelect").value);
+
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+
+  document.getElementById("from").value = formatDateLocal(firstDay);
+  document.getElementById("to").value = formatDateLocal(lastDay);
+}
+
 function setDefaultDates(){
   const today = new Date();
   const start = new Date(today.getFullYear(), 0, 1);
 
-  document.getElementById("from").value = start.toISOString().slice(0,10);
-  document.getElementById("to").value = today.toISOString().slice(0,10);
+  document.getElementById("from").value = formatDateLocal(start);
+  document.getElementById("to").value = formatDateLocal(today);
 }
 
 async function loadReport(){
@@ -138,7 +199,7 @@ async function loadReport(){
 
   if(!from || !to){
     message.className = "message error";
-    message.innerText = "Inserisci entrambe le date.";
+    message.innerText = "Inserisci entrambe le date oppure usa il selettore mese.";
     return;
   }
 
@@ -291,6 +352,7 @@ function downloadCSV(){
   URL.revokeObjectURL(url);
 }
 
+setupMonthSelectors();
 setDefaultDates();
 </script>
 
