@@ -8,7 +8,7 @@ app.use(express.static(__dirname));
 const API_BASE = process.env.CIAOBOOKING_API_BASE || "https://api.ciaobooking.com";
 const EMAIL = process.env.CIAOBOOKING_EMAIL;
 const PASSWORD = process.env.CIAOBOOKING_PASSWORD;
-const SOURCE = process.env.CIAOBOOKING_SOURCE || "public_api";
+const SOURCE = process.env.CIAOBOOKING_SOURCE || "wp";
 const LOCALE = process.env.CIAOBOOKING_LOCALE || "it";
 
 let cachedToken = null;
@@ -42,10 +42,19 @@ function monthsBetween(from, to) {
 function getRoomName(r) {
   return (
     r.room_name ||
-    r.unit?.unit_category?.name ||
     r.unit?.name ||
+    r.unit?.unit_category?.name ||
     r.room_type?.name ||
     "Camera senza nome"
+  );
+}
+
+function getPropertyName(r) {
+  return (
+    r.property_name ||
+    r.property?.name ||
+    r.unit?.property?.name ||
+    "Struttura senza nome"
   );
 }
 
@@ -136,7 +145,8 @@ app.get("/api/report", async (req, res) => {
     const reservations = await fetchReservations(from, to);
     const months = monthsBetween(from, to);
 
-    const report = {};
+    const roomReport = {};
+    const structureReport = {};
 
     for (const r of reservations) {
       const checkout = r.end_date;
@@ -144,32 +154,71 @@ app.get("/api/report", async (req, res) => {
       if (checkout < from || checkout > to) continue;
 
       const camera = getRoomName(r);
+      const struttura = getPropertyName(r);
       const mk = monthKey(checkout);
+      const roomKey = `${struttura}|||${camera}`;
 
-      if (!report[camera]) {
-        report[camera] = {};
-        months.forEach(m => report[camera][m] = 0);
+      if (!roomReport[roomKey]) {
+        roomReport[roomKey] = {
+          struttura,
+          camera,
+          months: {}
+        };
+        months.forEach(m => roomReport[roomKey].months[m] = 0);
       }
 
-      if (report[camera][mk] !== undefined) {
-        report[camera][mk]++;
+      if (!structureReport[struttura]) {
+        structureReport[struttura] = {
+          struttura,
+          months: {}
+        };
+        months.forEach(m => structureReport[struttura].months[m] = 0);
+      }
+
+      if (roomReport[roomKey].months[mk] !== undefined) {
+        roomReport[roomKey].months[mk]++;
+      }
+
+      if (structureReport[struttura].months[mk] !== undefined) {
+        structureReport[struttura].months[mk]++;
       }
     }
 
-    const rows = Object.keys(report).sort().map(camera => {
-      const values = months.map(m => report[camera][m] || 0);
-      const total = values.reduce((a, b) => a + b, 0);
+    const roomRows = Object.values(roomReport)
+      .sort((a, b) => {
+        if (a.struttura === b.struttura) return a.camera.localeCompare(b.camera);
+        return a.struttura.localeCompare(b.struttura);
+      })
+      .map(row => {
+        const values = months.map(m => row.months[m] || 0);
+        const total = values.reduce((a, b) => a + b, 0);
+        return {
+          struttura: row.struttura,
+          camera: row.camera,
+          values,
+          total
+        };
+      });
 
-      return {
-        camera,
-        values,
-        total
-      };
-    });
+    const structureRows = Object.values(structureReport)
+      .sort((a, b) => a.struttura.localeCompare(b.struttura))
+      .map(row => {
+        const values = months.map(m => row.months[m] || 0);
+        const total = values.reduce((a, b) => a + b, 0);
+        return {
+          struttura: row.struttura,
+          values,
+          total
+        };
+      });
+
+    const totalCheckout = roomRows.reduce((sum, r) => sum + r.total, 0);
 
     res.json({
       months: months.map(m => ({ key: m, label: monthLabel(m) })),
-      rows
+      rows: roomRows,
+      structures: structureRows,
+      totalCheckout
     });
 
   } catch (err) {
