@@ -3,86 +3,196 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Report Checkout</title>
+<title>Report Checkout Mensili</title>
 <style>
 body{
-font-family:Arial, sans-serif;
-max-width:1100px;
-margin:auto;
-padding:30px;
-background:#f5f5f5;
+  font-family: Arial, sans-serif;
+  max-width: 1200px;
+  margin: auto;
+  padding: 30px;
+  background: #f4f4f4;
 }
 .box{
-background:white;
-padding:25px;
-border-radius:12px;
-box-shadow:0 0 10px rgba(0,0,0,0.08);
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.08);
 }
 h1{margin-top:0;}
+.controls{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:end;
+}
+label{
+  display:block;
+  font-weight:bold;
+  margin-bottom:4px;
+}
 input,button{
-padding:10px;
-margin:5px;
-font-size:16px;
+  padding:10px;
+  font-size:16px;
 }
 button{
-background:#0d6efd;
-color:white;
-border:none;
-border-radius:6px;
-cursor:pointer;
+  background:#0d6efd;
+  color:white;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+}
+button.secondary{
+  background:#198754;
 }
 table{
-width:100%;
-border-collapse:collapse;
-margin-top:20px;
-background:white;
+  width:100%;
+  border-collapse:collapse;
+  margin-top:20px;
+  background:white;
 }
 th,td{
-border:1px solid #ddd;
-padding:10px;
-text-align:center;
+  border:1px solid #ddd;
+  padding:10px;
+  text-align:center;
 }
 th{
-background:#efefef;
+  background:#efefef;
+}
+td:first-child, th:first-child{
+  text-align:left;
+  font-weight:bold;
+}
+.message{
+  margin-top:15px;
+  font-weight:bold;
+}
+.error{
+  color:#b00020;
+}
+.success{
+  color:#198754;
 }
 </style>
 </head>
 <body>
 
 <div class="box">
-<h1>Report Checkout Mensili</h1>
+  <h1>Report Checkout Mensili</h1>
 
-<label>Dal:</label>
-<input type="date">
+  <div class="controls">
+    <div>
+      <label>Dal</label>
+      <input type="date" id="from">
+    </div>
 
-<label>Al:</label>
-<input type="date">
+    <div>
+      <label>Al</label>
+      <input type="date" id="to">
+    </div>
 
-<button>Calcola</button>
+    <button onclick="loadReport()">Calcola</button>
+    <button class="secondary" onclick="downloadCSV()">Scarica CSV</button>
+  </div>
 
-<table>
-<tr>
-<th>Camera</th>
-<th>Gen</th>
-<th>Feb</th>
-<th>Mar</th>
-<th>Apr</th>
-<th>Mag</th>
-<th>Totale</th>
-</tr>
-
-<tr>
-<td>Camera Demo</td>
-<td>2</td>
-<td>4</td>
-<td>3</td>
-<td>5</td>
-<td>1</td>
-<td>15</td>
-</tr>
-
-</table>
+  <div id="message" class="message"></div>
+  <div id="table"></div>
 </div>
+
+<script>
+let currentData = null;
+
+function setDefaultDates(){
+  const today = new Date();
+  const start = new Date(today.getFullYear(), 0, 1);
+
+  document.getElementById("from").value = start.toISOString().slice(0,10);
+  document.getElementById("to").value = today.toISOString().slice(0,10);
+}
+
+async function loadReport(){
+  const from = document.getElementById("from").value;
+  const to = document.getElementById("to").value;
+  const message = document.getElementById("message");
+  const table = document.getElementById("table");
+
+  if(!from || !to){
+    message.className = "message error";
+    message.innerText = "Inserisci entrambe le date.";
+    return;
+  }
+
+  message.className = "message";
+  message.innerText = "Caricamento dati da CiaoBooking...";
+  table.innerHTML = "";
+
+  try{
+    const res = await fetch(`/api/report?from=${from}&to=${to}`);
+    const data = await res.json();
+
+    if(!res.ok){
+      throw new Error(data.error || "Errore sconosciuto");
+    }
+
+    currentData = data;
+    renderTable(data);
+
+    message.className = "message success";
+    message.innerText = "Report caricato correttamente.";
+  }catch(err){
+    message.className = "message error";
+    message.innerText = "Errore: " + err.message;
+  }
+}
+
+function renderTable(data){
+  let html = "<table><thead><tr><th>Camera</th>";
+
+  data.months.forEach(m => {
+    html += `<th>${m.label}</th>`;
+  });
+
+  html += "<th>Totale</th></tr></thead><tbody>";
+
+  if(data.rows.length === 0){
+    html += `<tr><td colspan="${data.months.length + 2}">Nessun checkout trovato nel periodo selezionato.</td></tr>`;
+  }
+
+  data.rows.forEach(row => {
+    html += `<tr><td>${row.camera}</td>`;
+    row.values.forEach(v => {
+      html += `<td>${v}</td>`;
+    });
+    html += `<td><strong>${row.total}</strong></td></tr>`;
+  });
+
+  html += "</tbody></table>";
+  document.getElementById("table").innerHTML = html;
+}
+
+function downloadCSV(){
+  if(!currentData){
+    alert("Prima calcola il report.");
+    return;
+  }
+
+  const headers = ["Camera", ...currentData.months.map(m => m.label), "Totale"];
+  const lines = [headers.join(";")];
+
+  currentData.rows.forEach(row => {
+    lines.push([row.camera, ...row.values, row.total].join(";"));
+  });
+
+  const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "report-checkout.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+setDefaultDates();
+</script>
 
 </body>
 </html>
