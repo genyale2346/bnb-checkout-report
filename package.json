@@ -1,0 +1,12 @@
+{
+  "name": "bnb-checkout-report",
+  "version": "1.0.0",
+  "description": "Report checkout BNB",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
