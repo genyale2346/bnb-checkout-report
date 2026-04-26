@@ -12,7 +12,6 @@ label{display:block;font-weight:bold;margin-bottom:4px;}
 input,button,select{padding:10px;font-size:16px;}
 button{background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;}
 button.secondary{background:#198754;}
-button.month{background:#6f42c1;}
 table{width:100%;border-collapse:collapse;margin-top:15px;background:white;}
 th,td{border:1px solid #ddd;padding:10px;text-align:center;}
 th{background:#efefef;}
@@ -22,6 +21,7 @@ td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left;}
 .success{color:#198754;}
 .summary{margin-top:20px;padding:15px;background:#eef6ff;border-radius:8px;}
 .section-title{margin-top:30px;}
+.small-note{font-size:13px;color:#555;margin-top:5px;}
 </style>
 </head>
 <body>
@@ -32,12 +32,12 @@ td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left;}
   <div class="controls">
     <div>
       <label>Anno</label>
-      <select id="yearSelect"></select>
+      <select id="yearSelect" onchange="loadSavedLaundryCost()"></select>
     </div>
 
     <div>
       <label>Mese</label>
-      <select id="monthSelect">
+      <select id="monthSelect" onchange="loadSavedLaundryCost()">
         <option value="0">Gennaio</option>
         <option value="1">Febbraio</option>
         <option value="2">Marzo</option>
@@ -53,21 +53,10 @@ td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left;}
       </select>
     </div>
 
-    <button class="month" onclick="useSelectedMonth()">Usa mese</button>
-
-    <div>
-      <label>Dal</label>
-      <input type="date" id="from">
-    </div>
-
-    <div>
-      <label>Al</label>
-      <input type="date" id="to">
-    </div>
-
     <div>
       <label>Costo lavanderia totale €</label>
       <input type="number" id="laundryCost" step="0.01" placeholder="es. 900">
+      <div class="small-note">Si salva automaticamente per mese/anno.</div>
     </div>
 
     <button onclick="loadReport()">Calcola</button>
@@ -103,6 +92,36 @@ function formatDateLocal(date){
   return `${y}-${m}-${d}`;
 }
 
+function getSelectedPeriod(){
+  const year = Number(document.getElementById("yearSelect").value);
+  const month = Number(document.getElementById("monthSelect").value);
+
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+
+  return {
+    year,
+    month,
+    from: formatDateLocal(firstDay),
+    to: formatDateLocal(lastDay)
+  };
+}
+
+function costStorageKey(){
+  const p = getSelectedPeriod();
+  return `lavanderia_${p.year}_${String(p.month + 1).padStart(2, "0")}`;
+}
+
+function saveLaundryCost(){
+  const value = document.getElementById("laundryCost").value;
+  localStorage.setItem(costStorageKey(), value);
+}
+
+function loadSavedLaundryCost(){
+  const saved = localStorage.getItem(costStorageKey());
+  document.getElementById("laundryCost").value = saved || "";
+}
+
 function setupMonthSelectors(){
   const yearSelect = document.getElementById("yearSelect");
   const today = new Date();
@@ -117,42 +136,19 @@ function setupMonthSelectors(){
   }
 
   document.getElementById("monthSelect").value = today.getMonth();
-}
-
-function useSelectedMonth(){
-  const year = Number(document.getElementById("yearSelect").value);
-  const month = Number(document.getElementById("monthSelect").value);
-
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-
-  document.getElementById("from").value = formatDateLocal(firstDay);
-  document.getElementById("to").value = formatDateLocal(lastDay);
-}
-
-function setDefaultDates(){
-  const today = new Date();
-  const start = new Date(today.getFullYear(), 0, 1);
-
-  document.getElementById("from").value = formatDateLocal(start);
-  document.getElementById("to").value = formatDateLocal(today);
+  loadSavedLaundryCost();
 }
 
 async function loadReport(){
-  const from = document.getElementById("from").value;
-  const to = document.getElementById("to").value;
+  const p = getSelectedPeriod();
   const laundryCost = parseFloat(document.getElementById("laundryCost").value || "0");
+
+  saveLaundryCost();
 
   const message = document.getElementById("message");
   const roomTable = document.getElementById("roomTable");
   const structureTable = document.getElementById("structureTable");
   const summary = document.getElementById("summary");
-
-  if(!from || !to){
-    message.className = "message error";
-    message.innerText = "Inserisci entrambe le date oppure usa il selettore mese.";
-    return;
-  }
 
   message.className = "message";
   message.innerText = "Caricamento dati da CiaoBooking...";
@@ -161,7 +157,7 @@ async function loadReport(){
   summary.style.display = "none";
 
   try{
-    const res = await fetch(`/api/report?from=${from}&to=${to}`);
+    const res = await fetch(`/api/report?from=${p.from}&to=${p.to}`);
     const data = await res.json();
 
     if(!res.ok){
@@ -172,7 +168,7 @@ async function loadReport(){
     currentLaundryCost = laundryCost;
     currentCostPerCheckout = data.totalCheckout > 0 ? laundryCost / data.totalCheckout : 0;
 
-    renderSummary(data, laundryCost, currentCostPerCheckout);
+    renderSummary(data, laundryCost, currentCostPerCheckout, p);
     renderRoomTable(data, currentCostPerCheckout);
     renderStructureTable(data, currentCostPerCheckout);
 
@@ -184,12 +180,17 @@ async function loadReport(){
   }
 }
 
-function renderSummary(data, laundryCost, costPerCheckout){
+function renderSummary(data, laundryCost, costPerCheckout, period){
+  const monthName = document.getElementById("monthSelect").options[period.month].text;
   const summary = document.getElementById("summary");
   summary.style.display = "block";
 
   summary.innerHTML = `
     <table>
+      <tr>
+        <td><strong>Periodo</strong></td>
+        <td>${monthName} ${period.year}</td>
+      </tr>
       <tr>
         <td><strong>Totale checkout</strong></td>
         <td>${data.totalCheckout}</td>
@@ -276,7 +277,13 @@ function downloadCSV(){
     return;
   }
 
+  const p = getSelectedPeriod();
+  const monthName = document.getElementById("monthSelect").options[p.month].text;
+
   const lines = [];
+
+  lines.push(`REPORT ${monthName} ${p.year}`);
+  lines.push("");
 
   lines.push("REPORT PER CAMERE");
   lines.push([
@@ -334,13 +341,12 @@ function downloadCSV(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "report-checkout-lavanderia.csv";
+  a.download = `report-checkout-lavanderia-${p.year}-${String(p.month + 1).padStart(2, "0")}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
 setupMonthSelectors();
-setDefaultDates();
 </script>
 
 </body>
