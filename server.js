@@ -39,6 +39,10 @@ function monthsBetween(from, to) {
   return months;
 }
 
+function normalizeText(value) {
+  return String(value || "").toLowerCase().trim();
+}
+
 function getRoomName(r) {
   return (
     r.room_name ||
@@ -59,8 +63,23 @@ function getPropertyName(r) {
 }
 
 function isExcluded(camera, struttura) {
-  const text = `${camera} ${struttura}`.toLowerCase();
-  return text.includes("claudia") || text.includes("lory");
+  const cam = normalizeText(camera);
+  const prop = normalizeText(struttura);
+  const text = `${cam} ${prop}`;
+
+  if (text.includes("claudia") || text.includes("lory")) return true;
+
+  if (prop.includes("gg-room") && prop.includes("san giovanni") && cam.includes("o' sole mio nr x2")) return true;
+  if (prop.includes("san giovanni") && cam.includes("o' sole mio nr x2")) return true;
+
+  if (prop.includes("s. brigida") && prop.includes("gg-grow") && cam.includes("totò srsc x2")) return true;
+  if (prop.includes("s. brigida") && prop.includes("gg-grow") && cam.includes("toto srsc x2")) return true;
+
+  if (prop.includes("terrazza") && prop.includes("gg-grow") && cam.includes("terrazza srsc x2")) return true;
+
+  if (prop.includes("tutta nata storia") && cam.includes("tutta nata storia nr x5")) return true;
+
+  return false;
 }
 
 async function getToken() {
