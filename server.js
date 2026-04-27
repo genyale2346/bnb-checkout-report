@@ -1,329 +1,362 @@
-const express = require("express");
-const path = require("path");
+<?php
+/**
+ * Plugin Name: HK Planner (CiaoBooking) — Minimal
+ * Description: Planner housekeeping minimal per staff: selezione data, lista camere con CHECK-OUT, colonna DA FARE (rosso->verde). Evidenzia ospiti extra (cerchio rosso) solo quando NON c'è check-out e gli ospiti superano il default.
+ * Version: 1.0.3
+ * Author: Gennaro
+ */
 
-const app = express();
-app.use(express.json());
-app.use(express.static(__dirname));
+if (!defined('ABSPATH')) exit;
 
-const API_BASE = process.env.CIAOBOOKING_API_BASE || "https://api.ciaobooking.com";
-const EMAIL = process.env.CIAOBOOKING_EMAIL;
-const PASSWORD = process.env.CIAOBOOKING_PASSWORD;
-const SOURCE = process.env.CIAOBOOKING_SOURCE || "wp";
-const LOCALE = process.env.CIAOBOOKING_LOCALE || "it";
+class HK_Planner_CiaoBooking_Minimal {
+    const OPT_KEY = 'hk_planner_cb_min_settings';
+    const TOKEN_TRANSIENT = 'hk_planner_cb_min_token';
 
-let cachedToken = null;
-let cachedTokenExpires = 0;
+    // CiaoBooking
+    const API_BASE_DEFAULT = 'https://api.ciaobooking.com';
+    const LOGIN_ENDPOINT = '/api/public/login';
+    const RES_ENDPOINT   = '/api/public/reservations';
 
-const ACTIVE_ROOMS = [
-  { struttura: "Yes I Know My Room - Magica Napoli", camera: "Abbasc" },
-  { struttura: "Yes I Know My Room - Magica Napoli", camera: "Ngopp" },
+    // Regole ospiti
+    const SPECIAL_PROPERTY_ID_TNS = 142889; // Tutta Nata Storia
+    const DEFAULT_PREP_OTHER = 2;
+    const DEFAULT_PREP_TNS   = 3;
+    const THRESHOLD_OTHER = 2;
+    const THRESHOLD_TNS   = 3;
 
-  { struttura: "Yes I Know My Room - Storico", camera: "Alleria" },
-  { struttura: "Yes I Know My Room - Storico", camera: "Mareluna" },
+    // **Chiave API per Google Sheets**
+    const GOOGLE_SHEETS_API_KEY = 'AlzaSyB50UoXqgFbPv8k1VLwHVTnDMLY7BtSNw'; // Aggiungi qui la tua chiave API
 
-  { struttura: "Yes I Know My Room - Foria", camera: "A me me piace 'o blues" },
-  { struttura: "Yes I Know My Room - Foria", camera: "Allora sì" },
-  { struttura: "Yes I Know My Room - Foria", camera: "Je So' Pazz" },
-  { struttura: "Yes I Know My Room - Foria", camera: "Keep On Movin'" },
-  { struttura: "Yes I Know My Room - Foria", camera: "Napul'è" },
-  { struttura: "Yes I Know My Room - Foria", camera: "Vento di passione" },
+    public static function init() {
+        add_action('admin_menu', [__CLASS__, 'admin_menu']);
+        add_action('admin_init', [__CLASS__, 'register_settings']);
 
-  { struttura: "GG-ROOM - San Giovanni", camera: "Cuntrora" },
-  { struttura: "GG-ROOM - San Giovanni", camera: "Fenestrella" },
-  { struttura: "GG-ROOM - San Giovanni", camera: "O' Sole Mio" },
+        add_shortcode('hk_planner', [__CLASS__, 'shortcode']);
 
-  { struttura: "S. Brigida GG-Grow", camera: "Sophia" },
-  { struttura: "S. Brigida GG-Grow", camera: "Totò" },
+        add_action('template_redirect', [__CLASS__, 'maybe_disable_cache_headers']);
 
-  { struttura: "Terrazza GG-Grow", camera: "Terrazza" },
-
-  { struttura: "Tutta nata storia", camera: "Tutta nata storia" },
-
-  { struttura: "Una notte a napoli", camera: "una notte a napoli" }
-];
-
-function normalizeText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .trim()
-    .replace(/[’`]/g, "'")
-    .replace(/\s+/g, " ");
-}
-
-function monthKey(dateStr) {
-  const d = new Date(dateStr + "T00:00:00");
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function monthLabel(key) {
-  const [y, m] = key.split("-");
-  const mesi = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
-  return `${mesi[Number(m) - 1]} ${y}`;
-}
-
-function monthsBetween(from, to) {
-  const start = new Date(from + "T00:00:00");
-  const end = new Date(to + "T00:00:00");
-  const months = [];
-  const d = new Date(start.getFullYear(), start.getMonth(), 1);
-
-  while (d <= end) {
-    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-    d.setMonth(d.getMonth() + 1);
-  }
-
-  return months;
-}
-
-function getRoomName(r) {
-  return (
-    r.room_name ||
-    r.unit?.name ||
-    r.unit?.unit_category?.name ||
-    r.room_type?.name ||
-    "Camera senza nome"
-  );
-}
-
-function getPropertyName(r) {
-  return (
-    r.property_name ||
-    r.property?.name ||
-    r.unit?.property?.name ||
-    "Struttura senza nome"
-  );
-}
-
-function canonicalize(struttura, camera) {
-  let prop = String(struttura || "").trim();
-  let cam = String(camera || "").trim();
-
-  const p = normalizeText(prop);
-  const c = normalizeText(cam);
-  const text = `${p} ${c}`;
-
-  if (text.includes("claudia") || text.includes("lory")) {
-    return null;
-  }
-
-  if (c.includes("camera senza nome") || c === "—" || c === "-") {
-    return null;
-  }
-
-  if (p.includes("san giovanni") && c.includes("o' sole mio nr x2")) {
-    prop = "GG-ROOM - San Giovanni";
-    cam = "O' Sole Mio";
-  }
-
-  if (p.includes("s. brigida") && p.includes("gg-grow") && (c.includes("totò srsc x2") || c.includes("toto srsc x2"))) {
-    prop = "S. Brigida GG-Grow";
-    cam = "Totò";
-  }
-
-  if (p.includes("terrazza") && p.includes("gg-grow") && c.includes("terrazza srsc x2")) {
-    prop = "Terrazza GG-Grow";
-    cam = "Terrazza";
-  }
-
-  if (p.includes("tutta nata storia") && (c.includes("tutta nata storia nr x5") || c.includes("tutta nata storia sr x5"))) {
-    prop = "Tutta nata storia";
-    cam = "Tutta nata storia";
-  }
-
-  const active = ACTIVE_ROOMS.find(r =>
-    normalizeText(r.struttura) === normalizeText(prop) &&
-    normalizeText(r.camera) === normalizeText(cam)
-  );
-
-  if (!active) {
-    return null;
-  }
-
-  return {
-    struttura: active.struttura,
-    camera: active.camera
-  };
-}
-
-async function getToken() {
-  const now = Math.floor(Date.now() / 1000);
-
-  if (cachedToken && cachedTokenExpires > now + 60) {
-    return cachedToken;
-  }
-
-  const form = new FormData();
-  form.append("email", EMAIL);
-  form.append("password", PASSWORD);
-  form.append("source", SOURCE);
-
-  const res = await fetch(`${API_BASE}/api/public/login`, {
-    method: "POST",
-    headers: {
-      "locale": LOCALE
-    },
-    body: form
-  });
-
-  const json = await res.json();
-
-  if (!res.ok) {
-    throw new Error("Login CiaoBooking fallito");
-  }
-
-  cachedToken = json.data.token;
-  cachedTokenExpires = json.data.expiresAt || now + 3600;
-
-  return cachedToken;
-}
-
-async function fetchReservations(from, to) {
-  const token = await getToken();
-  let all = [];
-  let limit = 200;
-  let offset = 0;
-
-  while (true) {
-    const url = new URL(`${API_BASE}/api/public/reservations`);
-    url.searchParams.set("from", from);
-    url.searchParams.set("to", to);
-    url.searchParams.set("status", "2");
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("offset", String(offset));
-
-    const res = await fetch(url, {
-      headers: {
-        "Accept": "application/json",
-        "Authorization": `Bearer ${token}`
-      }
-    });
-
-    const json = await res.json();
-
-    if (!res.ok) {
-      throw new Error("Errore CiaoBooking HTTP " + res.status + ": " + JSON.stringify(json));
+        add_action('admin_post_hk_planner_toggle_done', [__CLASS__, 'handle_toggle_done']);
+        add_action('admin_post_hk_planner_toggle_tt', [__CLASS__, 'handle_toggle_tt']);
+        add_action('admin_post_nopriv_hk_planner_toggle_done', [__CLASS__, 'handle_toggle_done']);
+        add_action('admin_post_nopriv_hk_planner_toggle_tt', [__CLASS__, 'handle_toggle_tt']);
     }
 
-    const rows = json.data?.collection || [];
-    all = all.concat(rows);
-
-    if (rows.length < limit) break;
-    offset += limit;
-  }
-
-  return all;
-}
-
-app.get("/api/report", async (req, res) => {
-  try {
-    if (!EMAIL || !PASSWORD) {
-      return res.status(500).json({
-        error: "Credenziali CiaoBooking non configurate su Render"
-      });
+    public static function register_settings() {
+        register_setting(self::OPT_KEY, self::OPT_KEY, [__CLASS__, 'sanitize_settings']);
     }
 
-    const from = req.query.from;
-    const to = req.query.to;
+    public static function sanitize_settings($in) {
+        $out = [];
+        $out['api_base_url'] = isset($in['api_base_url']) ? esc_url_raw(trim($in['api_base_url'])) : self::API_BASE_DEFAULT;
+        if ($out['api_base_url'] === '') $out['api_base_url'] = self::API_BASE_DEFAULT;
 
-    if (!from || !to) {
-      return res.status(400).json({ error: "Date mancanti" });
+        $out['email'] = isset($in['email']) ? sanitize_email($in['email']) : '';
+        $out['password'] = isset($in['password']) ? (string)$in['password'] : '';
+        $out['source'] = isset($in['source']) ? sanitize_text_field($in['source']) : 'wp';
+        $out['locale'] = isset($in['locale']) ? sanitize_text_field($in['locale']) : 'it';
+
+        $out['property_id_tns'] = isset($in['property_id_tns']) ? intval($in['property_id_tns']) : self::SPECIAL_PROPERTY_ID_TNS;
+        if ($out['property_id_tns'] <= 0) $out['property_id_tns'] = self::SPECIAL_PROPERTY_ID_TNS;
+
+        $out['exclude_rooms'] = isset($in['exclude_rooms']) ? sanitize_text_field($in['exclude_rooms']) : '';
+
+        $out['cache_minutes'] = isset($in['cache_minutes']) ? intval($in['cache_minutes']) : 2;
+        if ($out['cache_minutes'] < 0) $out['cache_minutes'] = 0;
+        if ($out['cache_minutes'] > 60) $out['cache_minutes'] = 60;
+
+        
+        $out['slack_enabled'] = !empty($in['slack_enabled']) ? 1 : 0;
+        $out['slack_webhook_url'] = isset($in['slack_webhook_url']) ? esc_url_raw(trim($in['slack_webhook_url'])) : '';
+        // accetta solo https
+        if ($out['slack_webhook_url'] !== '' && stripos($out['slack_webhook_url'], 'https://') !== 0) {
+            $out['slack_webhook_url'] = '';
+        }
+        return $out;
     }
 
-    const reservations = await fetchReservations(from, to);
-    const months = monthsBetween(from, to);
+    private static function get_settings() {
+        $s = get_option(self::OPT_KEY);
+        if (!is_array($s)) $s = [];
 
-    const roomReport = {};
-    const structureReport = {};
+        $s = wp_parse_args($s, [
+            'api_base_url' => self::API_BASE_DEFAULT,
+            'email' => '',
+            'password' => '',
+            'source' => 'wp',
+            'locale' => 'it',
+            'property_id_tns' => self::SPECIAL_PROPERTY_ID_TNS,
+            'exclude_rooms' => '',
+            'cache_minutes' => 2,
+            'slack_enabled' => 0,
+            'slack_webhook_url' => '',
+        ]);
 
-    for (const active of ACTIVE_ROOMS) {
-      const roomKey = `${active.struttura}|||${active.camera}`;
-
-      roomReport[roomKey] = {
-        struttura: active.struttura,
-        camera: active.camera,
-        months: {}
-      };
-
-      months.forEach(m => roomReport[roomKey].months[m] = 0);
-
-      if (!structureReport[active.struttura]) {
-        structureReport[active.struttura] = {
-          struttura: active.struttura,
-          months: {}
-        };
-        months.forEach(m => structureReport[active.struttura].months[m] = 0);
-      }
+        return $s;
     }
 
-    for (const r of reservations) {
-      const checkout = r.end_date;
-      if (!checkout) continue;
-      if (checkout < from || checkout > to) continue;
-
-      const rawCamera = getRoomName(r);
-      const rawStruttura = getPropertyName(r);
-
-      const clean = canonicalize(rawStruttura, rawCamera);
-      if (!clean) continue;
-
-      const mk = monthKey(checkout);
-      const roomKey = `${clean.struttura}|||${clean.camera}`;
-
-      if (roomReport[roomKey] && roomReport[roomKey].months[mk] !== undefined) {
-        roomReport[roomKey].months[mk]++;
-      }
-
-      if (structureReport[clean.struttura] && structureReport[clean.struttura].months[mk] !== undefined) {
-        structureReport[clean.struttura].months[mk]++;
-      }
+    public static function admin_menu() {
+        add_options_page('HK Planner', 'HK Planner', 'manage_options', 'hk-planner', [__CLASS__, 'settings_page']);
     }
 
-    const roomRows = Object.values(roomReport)
-      .map(row => {
-        const values = months.map(m => row.months[m] || 0);
-        const total = values.reduce((a, b) => a + b, 0);
-        return {
-          struttura: row.struttura,
-          camera: row.camera,
-          values,
-          total
-        };
-      })
-      .sort((a, b) => {
-        if (b.total !== a.total) return b.total - a.total;
-        if (a.struttura === b.struttura) return a.camera.localeCompare(b.camera);
-        return a.struttura.localeCompare(b.struttura);
-      });
+    public static function settings_page() {
+        if (!current_user_can('manage_options')) return;
+        $s = self::get_settings();
+        $opt_name = self::OPT_KEY;
+        ?>
+        <div class="wrap">
+            <h1>HK Planner (CiaoBooking) — Minimal</h1>
+            <p><strong>Shortcode:</strong> <code>[hk_planner]</code></p>
 
-    const structureRows = Object.values(structureReport)
-      .map(row => {
-        const values = months.map(m => row.months[m] || 0);
-        const total = values.reduce((a, b) => a + b, 0);
-        return {
-          struttura: row.struttura,
-          values,
-          total
-        };
-      })
-      .sort((a, b) => {
-        if (b.total !== a.total) return b.total - a.total;
-        return a.struttura.localeCompare(b.struttura);
-      });
+            <form method="post" action="options.php">
+                <?php settings_fields(self::OPT_KEY); ?>
 
-    const totalCheckout = roomRows.reduce((sum, r) => sum + r.total, 0);
+                <h2>API</h2>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="hk_api_base">API Base URL</label></th>
+                        <td><input class="regular-text" type="text" id="hk_api_base" name="<?php echo esc_attr($opt_name); ?>[api_base_url]" value="<?php echo esc_attr($s['api_base_url']); ?>" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="hk_email">Email API</label></th>
+                        <td><input class="regular-text" type="email" id="hk_email" name="<?php echo esc_attr($opt_name); ?>[email]" value="<?php echo esc_attr($s['email']); ?>" autocomplete="off" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="hk_password">Password API</label></th>
+                        <td><input class="regular-text" type="password" id="hk_password" name="<?php echo esc_attr($opt_name); ?>[password]" value="<?php echo esc_attr($s['password']); ?>" autocomplete="new-password" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="hk_source">Source (login)</label></th>
+                        <td><input class="regular-text" type="text" id="hk_source" name="<?php echo esc_attr($opt_name); ?>[source]" value="<?php echo esc_attr($s['source']); ?>" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="hk_locale">Locale header</label></th>
+                        <td><input class="small-text" type="text" id="hk_locale" name="<?php echo esc_attr($opt_name); ?>[locale]" value="<?php echo esc_attr($s['locale']); ?>" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="hk_cache_minutes">Cache API (minuti)</label></th>
+                        <td>
+                            <input class="small-text" type="number" id="hk_cache_minutes" name="<?php echo esc_attr($opt_name); ?>[cache_minutes]" value="<?php echo esc_attr($s['cache_minutes']); ?>" min="0" max="60" />
+                            <p class="description">Suggerito: 2-5 minuti. 0 = nessuna cache.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Notifiche Slack</th>
+                        <td>
+                            <label style="display:inline-flex;align-items:center;gap:8px;">
+                                <input type="checkbox" name="<?php echo esc_attr(self::OPT_KEY); ?>[slack_enabled]" value="1" <?php checked(!empty($s['slack_enabled'])); ?> />
+                                <span>Abilita notifiche su Slack (push su cellulare)</span>
+                            </label>
+                            <p class="description">Usa un <strong>Incoming Webhook</strong> Slack.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Slack Webhook URL</th>
+                        <td>
+                            <input type="text" class="regular-text" name="<?php echo esc_attr(self::OPT_KEY); ?>[slack_webhook_url]" value="<?php echo esc_attr($s['slack_webhook_url'] ?? ''); ?>" placeholder="https://hooks.slack.com/services/..." />
+                            <p class="description">Incolla qui l’URL del webhook. Deve iniziare con <code>https://</code></p>
+                        </td>
+                    </tr>
 
-    res.json({
-      months: months.map(m => ({ key: m, label: monthLabel(m) })),
-      rows: roomRows,
-      structures: structureRows,
-      totalCheckout
-    });
+                </table>
 
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+                <h2>Regole</h2>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="hk_property_tns">Property ID “Tutta Nata Storia”</label></th>
+                        <td><input class="regular-text" type="number" id="hk_property_tns" name="<?php echo esc_attr($opt_name); ?>[property_id_tns]" value="<?php echo esc_attr($s['property_id_tns']); ?>" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="hk_exclude_rooms">Escludi camere (per nome)</label></th>
+                        <td>
+                            <input class="regular-text" type="text" id="hk_exclude_rooms" name="<?php echo esc_attr($opt_name); ?>[exclude_rooms]" value="<?php echo esc_attr($s['exclude_rooms']); ?>" />
+                            <p class="description">Separati da virgola. Esempio: <code>Seregno, Camera X</code></p>
+                        </td>
+                    </tr>
+                </table>
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Server avviato");
-});
+                <?php submit_button('Salva impostazioni'); ?>
+            </form>
+        </div>
+        <?php
+    }
+
+    private static function table_name() {
+        global $wpdb;
+        return $wpdb->prefix . 'hk_planner_done';
+    }
+
+    private static function maybe_create_table() {
+        global $wpdb;
+        $table = self::table_name();
+        $charset = $wpdb->get_charset_collate();
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $sql = "CREATE TABLE {$table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            work_date DATE NOT NULL,
+            key_type VARCHAR(10) NOT NULL,
+            key_id BIGINT UNSIGNED NOT NULL,
+            is_done TINYINT(1) NOT NULL DEFAULT 0,
+            done_at DATETIME NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY work_key (work_date, key_type, key_id)
+        ) {$charset};";
+
+        dbDelta($sql);
+    }
+
+    private static function safe_date_or_today($date_str) {
+        if (is_string($date_str) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_str)) return $date_str;
+        return current_time('Y-m-d');
+    }
+
+    private static function build_key($reservation_id, $unit_id) {
+        $uid = intval($unit_id);
+        if ($uid > 0) {
+            return ['key_type' => 'unit', 'key_id' => $uid];
+        }
+        $rid = intval($reservation_id);
+        if ($rid > 0) {
+            return ['key_type' => 'res', 'key_id' => $rid];
+        }
+        return ['key_type' => 'unit', 'key_id' => 0];
+    }
+
+    private static function exclude_room($room_name) {
+        $s = self::get_settings();
+        $list = trim((string)($s['exclude_rooms'] ?? ''));
+        if ($list === '') return false;
+
+        $needle = mb_strtolower(trim((string)$room_name));
+        if ($needle === '') return false;
+
+        $parts = array_filter(array_map('trim', explode(',', $list)));
+        foreach ($parts as $p) {
+            if ($p === '') continue;
+            if (mb_strtolower($p) === $needle) return true;
+        }
+        return false;
+    }
+
+    private static function get_done_map($work_date) {
+        global $wpdb;
+        $table = self::table_name();
+        $work_date = sanitize_text_field($work_date);
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("SELECT key_type, key_id, is_done FROM {$table} WHERE work_date=%s", $work_date),
+            ARRAY_A
+        );
+
+        $map = [];
+        if (is_array($rows)) {
+            foreach ($rows as $r) {
+                $kt = (string)($r['key_type'] ?? '');
+                $kid = intval($r['key_id'] ?? 0);
+                if ($kt && $kid > 0) {
+                    $map[$kt . '_' . $kid] = intval($r['is_done'] ?? 0);
+                }
+            }
+        }
+        return $map;
+    }
+
+    
+    private static function send_slack($text) {
+        $s = self::get_settings();
+        if (empty($s['slack_enabled']) || empty($s['slack_webhook_url'])) return;
+
+        $payload = wp_json_encode(['text' => (string)$text], JSON_UNESCAPED_UNICODE);
+        wp_remote_post((string)$s['slack_webhook_url'], [
+            'timeout' => 8,
+            'headers' => ['Content-Type' => 'application/json; charset=utf-8'],
+            'body' => $payload,
+        ]);
+    }
+
+public static function handle_toggle_tt() {
+        // Toggle/check TT (no Slack). Works like DA FARE: POST -> redirect back.
+        $return_url = isset($_POST['return_url']) ? esc_url_raw($_POST['return_url']) : home_url('/');
+        $hk_date = isset($_POST['work_date']) ? sanitize_text_field($_POST['work_date']) : '';
+        $reservation_id = isset($_POST['reservation_id']) ? sanitize_text_field($_POST['reservation_id']) : '';
+
+        // Nonce
+        $nonce_action = 'hk_planner_tt_' . $hk_date . '_' . $reservation_id;
+        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], $nonce_action)) {
+            wp_safe_redirect(add_query_arg('hkerr', 'bad_nonce', $return_url));
+            exit;
+        }
+
+        if (!empty($hk_date) && !empty($reservation_id)) {
+            if (self::tt_is_checked($reservation_id, $hk_date)) {
+                self::tt_clear_checked($reservation_id, $hk_date);
+                delete_option(self::tt_value_key($reservation_id, $hk_date));
+            } else {
+                self::tt_set_checked($reservation_id, $hk_date);
+                $tt_value = isset($_POST['tt_value']) ? floatval($_POST['tt_value']) : null;
+                if ($tt_value !== null) {
+                    self::tt_set_value($reservation_id, $hk_date, $tt_value);
+                }
+            }
+        }
+
+        wp_safe_redirect(add_query_arg('saved', '1', $return_url));
+        exit;
+    }
+
+    public static function handle_toggle_done() {
+        self::maybe_create_table();
+
+        $work_date = isset($_POST['work_date']) ? self::safe_date_or_today(wp_unslash($_POST['work_date'])) : current_time('Y-m-d');
+        $return_url = isset($_POST['return_url']) ? wp_unslash($_POST['return_url']) : home_url('/');
+        $return_url = wp_validate_redirect($return_url, home_url('/'));
+
+        $key_type = isset($_POST['key_type']) ? sanitize_text_field(wp_unslash($_POST['key_type'])) : '';
+        $key_id   = isset($_POST['key_id']) ? intval($_POST['key_id']) : 0;
+
+        $label = isset($_POST['label']) ? sanitize_text_field(wp_unslash($_POST['label'])) : '';
+
+
+        if (!in_array($key_type, ['res','unit'], true) || $key_id <= 0) {
+            wp_safe_redirect(add_query_arg(['hk_date'=>$work_date,'hkerr'=>'badkey'], $return_url));
+            exit;
+        }
+
+        $nonce_action = 'hk_planner_toggle_' . $work_date . '_' . $key_type . '_' . $key_id;
+        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], $nonce_action)) {
+            wp_safe_redirect(add_query_arg(['hk_date'=>$work_date,'hkerr'=>'nonce'], $return_url));
+            exit;
+        }
+
+        global $wpdb;
+        $table = self::table_name();
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare("SELECT is_done FROM {$table} WHERE work_date=%s AND key_type=%s AND key_id=%d LIMIT 1", $work_date, $key_type, $key_id),
+            ARRAY_A
+        );
+
+        $current = is_array($row) ? intval($row['is_done'] ?? 0) : 0;
+        $new = ($current === 1) ? 0 : 1;
+
+        if (!is_array($row)) {
+            $wpdb->insert(
+                $table,
+                [
+                    'work_date' => $work_date,
+                    'key_type' => $key_type,
+                    'key_id' => $key_id,
+                    'is_done' => $new,
+                    'done_at' => ($new === 1) ? current_time('mysql') : null,
+                    'updated_at' => current_time('mysql'),
+                ],
+                ['%s','%s','%d','%d','%s','%s']
+            );
+        } else {
+            $wpdb->update(
+                $table,
+                [
+                    'is_done' => $new,
+                    'done_at' => ($new === 1) ? current
