@@ -14,6 +14,42 @@ const LOCALE = process.env.CIAOBOOKING_LOCALE || "it";
 let cachedToken = null;
 let cachedTokenExpires = 0;
 
+const ACTIVE_ROOMS = [
+  { struttura: "Yes I Know My Room - Magica Napoli", camera: "Abbasc" },
+  { struttura: "Yes I Know My Room - Magica Napoli", camera: "Ngopp" },
+
+  { struttura: "Yes I Know My Room - Storico", camera: "Alleria" },
+  { struttura: "Yes I Know My Room - Storico", camera: "Mareluna" },
+
+  { struttura: "Yes I Know My Room - Foria", camera: "A me me piace 'o blues" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Allora sì" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Je So' Pazz" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Keep On Movin'" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Napul'è" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Vento di passione" },
+
+  { struttura: "GG-ROOM - San Giovanni", camera: "Cuntrora" },
+  { struttura: "GG-ROOM - San Giovanni", camera: "Fenestrella" },
+  { struttura: "GG-ROOM - San Giovanni", camera: "O' Sole Mio" },
+
+  { struttura: "S. Brigida GG-Grow", camera: "Sophia" },
+  { struttura: "S. Brigida GG-Grow", camera: "Totò" },
+
+  { struttura: "Terrazza GG-Grow", camera: "Terrazza" },
+
+  { struttura: "Tutta nata storia", camera: "Tutta nata storia" },
+
+  { struttura: "Una notte a napoli", camera: "una notte a napoli" }
+];
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[’`]/g, "'")
+    .replace(/\s+/g, " ");
+}
+
 function monthKey(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -39,10 +75,6 @@ function monthsBetween(from, to) {
   return months;
 }
 
-function normalizeText(value) {
-  return String(value || "").toLowerCase().trim();
-}
-
 function getRoomName(r) {
   return (
     r.room_name ||
@@ -62,45 +94,55 @@ function getPropertyName(r) {
   );
 }
 
-function isExcluded(camera, struttura) {
-  const cam = normalizeText(camera);
-  const prop = normalizeText(struttura);
-  const text = `${cam} ${prop}`;
+function canonicalize(struttura, camera) {
+  let prop = String(struttura || "").trim();
+  let cam = String(camera || "").trim();
 
-  if (text.includes("claudia") || text.includes("lory")) return true;
+  const p = normalizeText(prop);
+  const c = normalizeText(cam);
+  const text = `${p} ${c}`;
 
-  if (
-    prop.includes("gg-room") &&
-    prop.includes("san giovanni") &&
-    cam.includes("o' sole mio nr x2")
-  ) return true;
+  if (text.includes("claudia") || text.includes("lory")) {
+    return null;
+  }
 
-  if (
-    prop.includes("s. brigida") &&
-    prop.includes("gg-grow") &&
-    (
-      cam.includes("totò srsc x2") ||
-      cam.includes("toto srsc x2")
-    )
-  ) return true;
+  if (c.includes("camera senza nome") || c === "—" || c === "-") {
+    return null;
+  }
 
-  if (
-    prop.includes("terrazza") &&
-    prop.includes("gg-grow") &&
-    cam.includes("terrazza srsc x2")
-  ) return true;
+  if (p.includes("san giovanni") && c.includes("o' sole mio nr x2")) {
+    prop = "GG-ROOM - San Giovanni";
+    cam = "O' Sole Mio";
+  }
 
-  if (
-    prop.includes("tutta nata storia") &&
-    cam.includes("tutta nata storia nr x5")
-  ) return true;
+  if (p.includes("s. brigida") && p.includes("gg-grow") && (c.includes("totò srsc x2") || c.includes("toto srsc x2"))) {
+    prop = "S. Brigida GG-Grow";
+    cam = "Totò";
+  }
 
-  if (
-    prop.includes("tutta nata storia") &&
-    cam.includes("tutta nata storia sr x5")
-  ) return true;
+  if (p.includes("terrazza") && p.includes("gg-grow") && c.includes("terrazza srsc x2")) {
+    prop = "Terrazza GG-Grow";
+    cam = "Terrazza";
+  }
 
-  return false;
+  if (p.includes("tutta nata storia") && (c.includes("tutta nata storia nr x5") || c.includes("tutta nata storia sr x5"))) {
+    prop = "Tutta nata storia";
+    cam = "Tutta nata storia";
+  }
+
+  const active = ACTIVE_ROOMS.find(r =>
+    normalizeText(r.struttura) === normalizeText(prop) &&
+    normalizeText(r.camera) === normalizeText(cam)
+  );
+
+  if (!active) {
+    return null;
+  }
+
+  return {
+    struttura: active.struttura,
+    camera: active.camera
+  };
 }
 
 async function getToken() {
@@ -193,44 +235,46 @@ app.get("/api/report", async (req, res) => {
     const roomReport = {};
     const structureReport = {};
 
+    for (const active of ACTIVE_ROOMS) {
+      const roomKey = `${active.struttura}|||${active.camera}`;
+
+      roomReport[roomKey] = {
+        struttura: active.struttura,
+        camera: active.camera,
+        months: {}
+      };
+
+      months.forEach(m => roomReport[roomKey].months[m] = 0);
+
+      if (!structureReport[active.struttura]) {
+        structureReport[active.struttura] = {
+          struttura: active.struttura,
+          months: {}
+        };
+        months.forEach(m => structureReport[active.struttura].months[m] = 0);
+      }
+    }
+
     for (const r of reservations) {
       const checkout = r.end_date;
       if (!checkout) continue;
       if (checkout < from || checkout > to) continue;
 
-      const camera = getRoomName(r);
-      const struttura = getPropertyName(r);
+      const rawCamera = getRoomName(r);
+      const rawStruttura = getPropertyName(r);
 
-      if (isExcluded(camera, struttura)) {
-        continue;
-      }
+      const clean = canonicalize(rawStruttura, rawCamera);
+      if (!clean) continue;
 
       const mk = monthKey(checkout);
-      const roomKey = `${struttura}|||${camera}`;
+      const roomKey = `${clean.struttura}|||${clean.camera}`;
 
-      if (!roomReport[roomKey]) {
-        roomReport[roomKey] = {
-          struttura,
-          camera,
-          months: {}
-        };
-        months.forEach(m => roomReport[roomKey].months[m] = 0);
-      }
-
-      if (!structureReport[struttura]) {
-        structureReport[struttura] = {
-          struttura,
-          months: {}
-        };
-        months.forEach(m => structureReport[struttura].months[m] = 0);
-      }
-
-      if (roomReport[roomKey].months[mk] !== undefined) {
+      if (roomReport[roomKey] && roomReport[roomKey].months[mk] !== undefined) {
         roomReport[roomKey].months[mk]++;
       }
 
-      if (structureReport[struttura].months[mk] !== undefined) {
-        structureReport[struttura].months[mk]++;
+      if (structureReport[clean.struttura] && structureReport[clean.struttura].months[mk] !== undefined) {
+        structureReport[clean.struttura].months[mk]++;
       }
     }
 
