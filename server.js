@@ -16,7 +16,7 @@ let cachedToken = null;
 let cachedTokenExpires = 0;
 
 const SPREADSHEET_ID = 'AIzaSyB5OUoXqgFbPv8K1vLBwHVTDnMLY7BtSNw';
-const SHEET_NAME = 'Sheet1'; // Sostituisci con il nome del tuo foglio
+const SHEET_NAME = 'lavanderia'; //
 
 // Google Sheets API setup
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
