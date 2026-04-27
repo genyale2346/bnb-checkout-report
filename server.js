@@ -1,7 +1,6 @@
 const express = require("express");
 const path = require("path");
-const { google } = require('googleapis');
-const fs = require('fs');
+
 const app = express();
 app.use(express.json());
 app.use(express.static(__dirname));
@@ -15,63 +14,224 @@ const LOCALE = process.env.CIAOBOOKING_LOCALE || "it";
 let cachedToken = null;
 let cachedTokenExpires = 0;
 
-const SPREADSHEET_ID = 'AIzaSyB5OUoXqgFbPv8K1vLBwHVTDnMLY7BtSNw';
-const SHEET_NAME = 'lavanderia'; //
+const ACTIVE_ROOMS = [
+  { struttura: "Yes I Know My Room - Magica Napoli", camera: "Abbasc" },
+  { struttura: "Yes I Know My Room - Magica Napoli", camera: "Ngopp" },
 
-// Google Sheets API setup
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
-const CREDENTIALS_PATH = 'credentials.json';
+  { struttura: "Yes I Know My Room - Storico", camera: "Alleria" },
+  { struttura: "Yes I Know My Room - Storico", camera: "Mareluna" },
 
-// Leggi il file delle credenziali e ottieni l'accesso all'API di Google Sheets
-const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+  { struttura: "Yes I Know My Room - Foria", camera: "A me me piace 'o blues" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Allora sì" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Je So' Pazz" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Keep On Movin'" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Napul'è" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Vento di passione" },
 
-const { client_email, private_key } = credentials;
-const auth = new google.auth.JWT(client_email, null, private_key, SCOPES);
+  { struttura: "GG-ROOM - San Giovanni", camera: "Cuntrora" },
+  { struttura: "GG-ROOM - San Giovanni", camera: "Fenestrella" },
+  { struttura: "GG-ROOM - San Giovanni", camera: "O' Sole Mio" },
 
-// Funzione per ottenere i dati dal foglio Google Sheets
-async function getLaundryCosts() {
-  const sheets = google.sheets({ version: 'v4', auth });
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: SHEET_NAME,
-  });
+  { struttura: "S. Brigida GG-Grow", camera: "Sophia" },
+  { struttura: "S. Brigida GG-Grow", camera: "Totò" },
 
-  const rows = response.data.values;
-  const data = {};
+  { struttura: "Terrazza GG-Grow", camera: "Terrazza" },
 
-  if (rows.length) {
-    rows.forEach((row) => {
-      const [month, cost] = row;
-      data[month] = parseFloat(cost) || 0;
-    });
-  }
+  { struttura: "Tutta nata storia", camera: "Tutta nata storia" },
 
-  return data;
+  { struttura: "Una notte a napoli", camera: "una notte a napoli" }
+];
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[’`]/g, "'")
+    .replace(/\s+/g, " ");
 }
 
-// Funzione per scrivere i dati nel foglio Google Sheets
-async function updateLaundryCost(month, cost) {
-  const sheets = google.sheets({ version: 'v4', auth });
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!B2`, // Cambia con la cella corretta per aggiornare
-    valueInputOption: "RAW",
-    resource: {
-      values: [[cost]],
+function monthKey(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key) {
+  const [y, m] = key.split("-");
+  const mesi = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
+  return `${mesi[Number(m) - 1]} ${y}`;
+}
+
+function monthsBetween(from, to) {
+  const start = new Date(from + "T00:00:00");
+  const end = new Date(to + "T00:00:00");
+  const months = [];
+  const d = new Date(start.getFullYear(), start.getMonth(), 1);
+
+  while (d <= end) {
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    d.setMonth(d.getMonth() + 1);
+  }
+
+  return months;
+}
+
+function getRoomName(r) {
+  return (
+    r.room_name ||
+    r.unit?.name ||
+    r.unit?.unit_category?.name ||
+    r.room_type?.name ||
+    "Camera senza nome"
+  );
+}
+
+function getPropertyName(r) {
+  return (
+    r.property_name ||
+    r.property?.name ||
+    r.unit?.property?.name ||
+    "Struttura senza nome"
+  );
+}
+
+function canonicalize(struttura, camera) {
+  let prop = String(struttura || "").trim();
+  let cam = String(camera || "").trim();
+
+  const p = normalizeText(prop);
+  const c = normalizeText(cam);
+  const text = `${p} ${c}`;
+
+  if (text.includes("claudia") || text.includes("lory")) {
+    return null;
+  }
+
+  if (c.includes("camera senza nome") || c === "—" || c === "-") {
+    return null;
+  }
+
+  if (p.includes("san giovanni") && c.includes("o' sole mio nr x2")) {
+    prop = "GG-ROOM - San Giovanni";
+    cam = "O' Sole Mio";
+  }
+
+  if (p.includes("s. brigida") && p.includes("gg-grow") && (c.includes("totò srsc x2") || c.includes("toto srsc x2"))) {
+    prop = "S. Brigida GG-Grow";
+    cam = "Totò";
+  }
+
+  if (p.includes("terrazza") && p.includes("gg-grow") && c.includes("terrazza srsc x2")) {
+    prop = "Terrazza GG-Grow";
+    cam = "Terrazza";
+  }
+
+  if (p.includes("tutta nata storia") && (c.includes("tutta nata storia nr x5") || c.includes("tutta nata storia sr x5"))) {
+    prop = "Tutta nata storia";
+    cam = "Tutta nata storia";
+  }
+
+  const active = ACTIVE_ROOMS.find(r =>
+    normalizeText(r.struttura) === normalizeText(prop) &&
+    normalizeText(r.camera) === normalizeText(cam)
+  );
+
+  if (!active) {
+    return null;
+  }
+
+  return {
+    struttura: active.struttura,
+    camera: active.camera
+  };
+}
+
+async function getToken() {
+  const now = Math.floor(Date.now() / 1000);
+
+  if (cachedToken && cachedTokenExpires > now + 60) {
+    return cachedToken;
+  }
+
+  const form = new FormData();
+  form.append("email", EMAIL);
+  form.append("password", PASSWORD);
+  form.append("source", SOURCE);
+
+  const res = await fetch(`${API_BASE}/api/public/login`, {
+    method: "POST",
+    headers: {
+      "locale": LOCALE
     },
+    body: form
   });
+
+  const json = await res.json();
+
+  if (!res.ok) {
+    throw new Error("Login CiaoBooking fallito");
+  }
+
+  cachedToken = json.data.token;
+  cachedTokenExpires = json.data.expiresAt || now + 3600;
+
+  return cachedToken;
+}
+
+async function fetchReservations(from, to) {
+  const token = await getToken();
+  let all = [];
+  let limit = 200;
+  let offset = 0;
+
+  while (true) {
+    const url = new URL(`${API_BASE}/api/public/reservations`);
+    url.searchParams.set("from", from);
+    url.searchParams.set("to", to);
+    url.searchParams.set("status", "2");
+    url.searchParams.set("limit", String(limit));
+    url.searchParams.set("offset", String(offset));
+
+    const res = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "Authorization": `Bearer ${token}`
+      }
+    });
+
+    const json = await res.json();
+
+    if (!res.ok) {
+      throw new Error("Errore CiaoBooking HTTP " + res.status + ": " + JSON.stringify(json));
+    }
+
+    const rows = json.data?.collection || [];
+    all = all.concat(rows);
+
+    if (rows.length < limit) break;
+    offset += limit;
+  }
+
+  return all;
 }
 
 app.get("/api/report", async (req, res) => {
   try {
-    const { from, to } = req.query;
+    if (!EMAIL || !PASSWORD) {
+      return res.status(500).json({
+        error: "Credenziali CiaoBooking non configurate su Render"
+      });
+    }
 
-    // Ottieni i dati dalla Google Sheets
-    const laundryCosts = await getLaundryCosts();
+    const from = req.query.from;
+    const to = req.query.to;
 
+    if (!from || !to) {
+      return res.status(400).json({ error: "Date mancanti" });
+    }
+
+    const reservations = await fetchReservations(from, to);
     const months = monthsBetween(from, to);
 
-    // Logica di report
     const roomReport = {};
     const structureReport = {};
 
@@ -81,7 +241,7 @@ app.get("/api/report", async (req, res) => {
       roomReport[roomKey] = {
         struttura: active.struttura,
         camera: active.camera,
-        months: {},
+        months: {}
       };
 
       months.forEach(m => roomReport[roomKey].months[m] = 0);
@@ -89,13 +249,11 @@ app.get("/api/report", async (req, res) => {
       if (!structureReport[active.struttura]) {
         structureReport[active.struttura] = {
           struttura: active.struttura,
-          months: {},
+          months: {}
         };
         months.forEach(m => structureReport[active.struttura].months[m] = 0);
       }
     }
-
-    const reservations = await fetchReservations(from, to);
 
     for (const r of reservations) {
       const checkout = r.end_date;
