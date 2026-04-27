@@ -279,10 +279,6 @@ app.get("/api/report", async (req, res) => {
     }
 
     const roomRows = Object.values(roomReport)
-      .sort((a, b) => {
-        if (a.struttura === b.struttura) return a.camera.localeCompare(b.camera);
-        return a.struttura.localeCompare(b.struttura);
-      })
       .map(row => {
         const values = months.map(m => row.months[m] || 0);
         const total = values.reduce((a, b) => a + b, 0);
@@ -292,10 +288,14 @@ app.get("/api/report", async (req, res) => {
           values,
           total
         };
+      })
+      .sort((a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        if (a.struttura === b.struttura) return a.camera.localeCompare(b.camera);
+        return a.struttura.localeCompare(b.struttura);
       });
 
     const structureRows = Object.values(structureReport)
-      .sort((a, b) => a.struttura.localeCompare(b.struttura))
       .map(row => {
         const values = months.map(m => row.months[m] || 0);
         const total = values.reduce((a, b) => a + b, 0);
@@ -304,6 +304,10 @@ app.get("/api/report", async (req, res) => {
           values,
           total
         };
+      })
+      .sort((a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        return a.struttura.localeCompare(b.struttura);
       });
 
     const totalCheckout = roomRows.reduce((sum, r) => sum + r.total, 0);
