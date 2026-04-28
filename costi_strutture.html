@@ -3,46 +3,45 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Costi Strutture - Controllo di Gestione</title>
+<title>Analisi Costi Strutture V2</title>
 <style>
 body{font-family:Arial,sans-serif;max-width:1400px;margin:auto;padding:30px;background:#f4f4f4;}
 .box{background:white;padding:25px;border-radius:12px;box-shadow:0 0 10px rgba(0,0,0,0.08);margin-bottom:30px;}
-.nav-menu{margin-bottom: 20px;}
-.nav-menu a{display:inline-block; padding: 10px 20px; background: #e0e0e0; color: #333; text-decoration: none; border-radius: 6px; margin-right: 10px; font-weight: bold;}
-.nav-menu a.active{background: #0d6efd; color: white;}
+.nav-menu{margin-bottom: 25px; display: flex; gap: 10px;}
+.nav-menu a{padding: 12px 20px; background: #dee2e6; color: #333; text-decoration: none; border-radius: 8px; font-weight: bold; border: 1px solid #ccc;}
+.nav-menu a.active{background: #0d6efd; color: white; border-color: #0d6efd;}
 .controls{display:flex;flex-wrap:wrap;gap:15px;align-items:end; margin-bottom: 20px;}
-label{display:block;font-weight:bold;margin-bottom:4px;}
-input,button,select{padding:10px;font-size:16px; border: 1px solid #ccc; border-radius: 4px;}
-button{background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;}
+label{display:block;font-weight:bold;margin-bottom:4px; font-size: 14px;}
+input,button,select{padding:10px;font-size:16px; border: 1px solid #ccc; border-radius: 6px;}
+button{background:#0d6efd;color:white;border:none;cursor:pointer; font-weight: bold;}
 button:hover{background:#0b5ed7;}
 button.range-btn{background:#6f42c1;}
-button.range-btn:hover{background:#59359a;}
-.cost-grid{display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;}
-.cost-item label{font-size: 14px; color: #333;}
-.cost-item input{width: 100%; box-sizing: border-box;}
+button.secondary{background:#198754;}
+.cost-grid{display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 15px; margin-bottom: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px; border: 1px dashed #ccc;}
+.cost-item input{width: 100%; box-sizing: border-box; margin-top: 5px;}
 table{width:100%;border-collapse:collapse;margin-top:15px;background:white;}
-th,td{border:1px solid #ddd;padding:10px;text-align:center;}
-th{background:#efefef;}
+th,td{border:1px solid #ddd;padding:12px;text-align:center;}
+th{background:#f1f1f1;}
 td:first-child,th:first-child{text-align:left;}
 .message{margin-top:15px;font-weight:bold;}
-.error{color:#b00020;}
 .success{color:#198754;}
-.summary-box{margin-top:20px;padding:15px;background:#f0f7ff;border-radius:8px; border-left: 5px solid #0d6efd;}
-hr{margin: 40px 0; border: 0; border-top: 2px solid #ddd;}
+.error{color:#b00020;}
+.report-section{margin-top: 35px; padding-top: 25px; border-top: 3px solid #eee;}
+.badge-info{background: #e7f3ff; color: #004085; padding: 10px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #0d6efd;}
 </style>
 </head>
 <body>
 
 <div class="nav-menu">
-    <a href="index.html">⬅ Vai a Report Camere (Lavanderia)</a>
-    <a href="costi_strutture.html" class="active">Analisi Costi Strutture</a>
+    <a href="index.html">⬅ Report Lavanderia</a>
+    <a href="costi_strutture.html" class="active">Analisi Costi Strutture (Mese e Periodo)</a>
 </div>
 
 <div class="box">
-  <h1>Analisi Costi per Gruppo Struttura</h1>
-  
-  <h2>1. Gestione Costi Mensili</h2>
-  <p>Inserisci i costi per il singolo mese. I dati vengono salvati online e usati anche nei report di periodo.</p>
+  <h1>1. Inserimento Costi Mensili</h1>
+  <div class="badge-info">
+    Scegli il mese, inserisci i costi per gruppo e clicca su "Salva". I dati rimarranno memorizzati online.
+  </div>
 
   <div class="controls">
     <div>
@@ -55,45 +54,40 @@ hr{margin: 40px 0; border: 0; border-top: 2px solid #ddd;}
     </div>
   </div>
 
-  <h3>Inserisci/Modifica Costi (€)</h3>
   <div class="cost-grid" id="costGrid"></div>
 
-  <button onclick="salvaECalcola()" style="width: 100%; padding: 15px; font-size: 18px; font-weight: bold;">Salva e Calcola Mese Singolo</button>
+  <button onclick="salvaECalcola()" style="width: 100%; padding: 15px;">SALVA E CALCOLA MESE SINGOLO</button>
   <div id="message" class="message"></div>
+  <div id="reportContainer" style="display: none; margin-top: 20px;"><div id="reportTable"></div></div>
+</div>
 
-  <div id="reportContainer" style="display: none; margin-top: 20px;">
-    <div id="reportTable"></div>
-  </div>
-
-  <hr>
-
-  <h2>2. Report da Mese a Mese (Analisi Periodo)</h2>
-  <p>Somma automaticamente i costi salvati e calcola la media checkout su più mesi.</p>
+<div class="box report-section">
+  <h1>2. Report Storico (Analisi Periodo)</h1>
+  <p>Somma automaticamente i costi salvati e calcola la media sui checkout in un arco di tempo.</p>
   
   <div class="controls">
     <div>
-      <label>Anno Da</label>
+      <label>Dall'Anno</label>
       <select id="rangeFromYear"></select>
     </div>
     <div>
-      <label>Mese Da</label>
+      <label>Dal Mese</label>
       <select id="rangeFromMonth"></select>
     </div>
-    <div style="padding-bottom: 10px; font-weight: bold;">➡</div>
+    <div style="font-size: 24px; padding-bottom: 5px;">➡</div>
     <div>
-      <label>Anno A</label>
+      <label>All'Anno</label>
       <select id="rangeToYear"></select>
     </div>
     <div>
-      <label>Mese A</label>
+      <label>Al Mese</label>
       <select id="rangeToMonth"></select>
     </div>
-    <button class="range-btn" onclick="loadRangeReport()">Calcola Analisi Periodo</button>
+    <button class="range-btn" onclick="loadRangeReport()">GENERA REPORT PERIODO</button>
   </div>
 
   <div id="rangeMessage" class="message"></div>
   <div id="rangeReportContainer" style="display: none;">
-    <div class="summary-box" id="rangeSummary"></div>
     <div id="rangeReportTable"></div>
   </div>
 </div>
@@ -143,10 +137,9 @@ function fillSelectors(){
 function getPeriodInfo(yId, mId){
   const y = document.getElementById(yId).value;
   const m = String(Number(document.getElementById(mId).value) + 1).padStart(2, "0");
-  const firstDay = new Date(y, Number(document.getElementById(mId).value), 1);
   const lastDay = new Date(y, Number(document.getElementById(mId).value) + 1, 0);
   return {
-    key: `costi_finali_${y}_${m}`,
+    key: `str_cost_v1_${y}_${m}`, // Chiave stabile per il database
     from: `${y}-${m}-01`,
     to: `${y}-${m}-${String(lastDay.getDate()).padStart(2, "0")}`
   };
@@ -169,7 +162,7 @@ async function loadCosts(){
 async function salvaECalcola(){
   const msg = document.getElementById("message");
   const p = getPeriodInfo("yearSelect", "monthSelect");
-  msg.className = "message"; msg.innerText = "Salvataggio...";
+  msg.className = "message"; msg.innerText = "Salvataggio e calcolo...";
 
   try {
     const promises = Array.from(document.querySelectorAll('.cost-item input')).map(inp => {
@@ -184,14 +177,14 @@ async function salvaECalcola(){
     const res = await fetch(`/api/report?from=${p.from}&to=${p.to}`);
     const data = await res.json();
     renderTable(data.structures, "reportTable", "reportContainer");
-    msg.className = "message success"; msg.innerText = "Dati salvati e report aggiornato!";
+    msg.className = "message success"; msg.innerText = "Dati salvati correttamente!";
   } catch (err) { msg.className = "message error"; msg.innerText = "Errore: " + err.message; }
 }
 
 async function loadRangeReport(){
   const msg = document.getElementById("rangeMessage");
   const container = document.getElementById("rangeReportContainer");
-  msg.className = "message"; msg.innerText = "Analisi periodo in corso...";
+  msg.className = "message"; msg.innerText = "Generazione report di periodo...";
   container.style.display = "none";
 
   const fYear = Number(document.getElementById("rangeFromYear").value);
@@ -201,27 +194,21 @@ async function loadRangeReport(){
 
   const start = new Date(fYear, fMonth, 1);
   const end = new Date(tYear, tMonth, 1);
-  if(start > end){ msg.className = "message error"; msg.innerText = "Data inizio successiva a data fine!"; return; }
+  if(start > end){ msg.className = "message error"; msg.innerText = "Data inizio non valida!"; return; }
 
   try {
-    // 1. Somma i costi dal DB per ogni mese
     const combinedCosts = {};
     struttureVisualizzate.forEach(s => combinedCosts[s] = 0);
     
     let temp = new Date(start);
-    const monthsKeys = [];
     while(temp <= end){
-      monthsKeys.push(`costi_finali_${temp.getFullYear()}_${String(temp.getMonth()+1).padStart(2, "0")}`);
-      temp.setMonth(temp.getMonth() + 1);
-    }
-
-    for(const key of monthsKeys){
+      const key = `str_cost_v1_${temp.getFullYear()}_${String(temp.getMonth()+1).padStart(2, "0")}`;
       const res = await fetch(`/api/get-structure-costs?month_key=${key}`);
       const data = await res.json();
       data.forEach(item => { if(combinedCosts[item.structure_name] !== undefined) combinedCosts[item.structure_name] += item.cost; });
+      temp.setMonth(temp.getMonth() + 1);
     }
 
-    // 2. Prendi checkout totali del periodo
     const lastDay = new Date(tYear, tMonth + 1, 0);
     const fromStr = `${fYear}-${String(fMonth+1).padStart(2,"0")}-01`;
     const toStr = `${tYear}-${String(tMonth+1).padStart(2,"0")}-${String(lastDay.getDate()).padStart(2,"0")}`;
@@ -229,22 +216,19 @@ async function loadRangeReport(){
     const resRep = await fetch(`/api/report?from=${fromStr}&to=${toStr}`);
     const reportData = await resRep.json();
 
-    // 3. Render
-    document.getElementById("rangeSummary").innerHTML = `<strong>Analisi Periodo:</strong> Da ${monthNames[fMonth]} ${fYear} a ${monthNames[tMonth]} ${tYear} (${monthsKeys.length} mesi)`;
     renderTable(reportData.structures, "rangeReportTable", "rangeReportContainer", combinedCosts);
-    msg.className = "message success"; msg.innerText = "Analisi periodo completata!";
+    msg.className = "message success"; msg.innerText = "Report periodo caricato!";
   } catch (e) { msg.className = "message error"; msg.innerText = "Errore: " + e.message; }
 }
 
 function renderTable(struttureCb, tableId, containerId, externalCosts = null){
-  let html = "<table><thead><tr><th>Gruppo</th><th>Costo Periodo</th><th>Checkouts</th><th>Media/Checkout</th></tr></thead><tbody>";
+  let html = "<table><thead><tr><th>Gruppo Struttura</th><th>Costo Periodo</th><th>Checkouts Totali</th><th>Media / Checkout</th></tr></thead><tbody>";
   let tCosti = 0, tCheck = 0;
 
   struttureVisualizzate.forEach(nome => {
     let costo = 0;
-    if(externalCosts) {
-      costo = externalCosts[nome];
-    } else {
+    if(externalCosts) costo = externalCosts[nome];
+    else {
       const inp = document.querySelector(`input[data-name="${nome}"]`);
       costo = parseFloat(inp.value) || 0;
     }
@@ -262,7 +246,7 @@ function renderTable(struttureCb, tableId, containerId, externalCosts = null){
   });
 
   const mediaT = tCheck > 0 ? tCosti / tCheck : 0;
-  html += `<tr style="background:#eef6ff;"><td><strong>TOTALE</strong></td><td><strong>${euro(tCosti)}</strong></td><td><strong>${tCheck}</strong></td><td><strong style="color:#198754;">${euro(mediaT)}</strong></td></tr></tbody></table>`;
+  html += `<tr style="background:#eef6ff;"><td><strong>TOTALE GENERALE</strong></td><td><strong>${euro(tCosti)}</strong></td><td><strong>${tCheck}</strong></td><td><strong style="color:#198754;">${euro(mediaT)}</strong></td></tr></tbody></table>`;
   
   document.getElementById(tableId).innerHTML = html;
   document.getElementById(containerId).style.display = "block";
