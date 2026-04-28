@@ -1,32 +1,60 @@
-const express = require('express');
-const path = require('path');
+const express = require("express");
+const path = require("path");
 const { createClient } = require('@supabase/supabase-js');
+
 const app = express();
-const port = process.env.PORT || 3000;
-
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
-// Inizializzazione Supabase con le chiavi che abbiamo messo su Render
+// --- CONFIGURAZIONE SUPABASE ---
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
-// Rotta per salvare i costi (usata dal PC o dal Cellulare)
+// --- CONFIGURAZIONE CIAOBOOKING ---
+const API_BASE = process.env.CIAOBOOKING_API_BASE || "https://api.ciaobooking.com";
+const EMAIL = process.env.CIAOBOOKING_EMAIL;
+const PASSWORD = process.env.CIAOBOOKING_PASSWORD;
+const SOURCE = process.env.CIAOBOOKING_SOURCE || "wp";
+const LOCALE = process.env.CIAOBOOKING_LOCALE || "it";
+
+let cachedToken = null;
+let cachedTokenExpires = 0;
+
+const ACTIVE_ROOMS = [
+  { struttura: "Yes I Know My Room - Magica Napoli", camera: "Abbasc" },
+  { struttura: "Yes I Know My Room - Magica Napoli", camera: "Ngopp" },
+  { struttura: "Yes I Know My Room - Storico", camera: "Alleria" },
+  { struttura: "Yes I Know My Room - Storico", camera: "Mareluna" },
+  { struttura: "Yes I Know My Room - Foria", camera: "A me me piace 'o blues" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Allora sì" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Je So' Pazz" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Keep On Movin'" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Napul'è" },
+  { struttura: "Yes I Know My Room - Foria", camera: "Vento di passione" },
+  { struttura: "GG-ROOM - San Giovanni", camera: "Cuntrora" },
+  { struttura: "GG-ROOM - San Giovanni", camera: "Fenestrella" },
+  { struttura: "GG-ROOM - San Giovanni", camera: "O' Sole Mio" },
+  { struttura: "S. Brigida GG-Grow", camera: "Sophia" },
+  { struttura: "S. Brigida GG-Grow", camera: "Totò" },
+  { struttura: "Terrazza GG-Grow", camera: "Terrazza" },
+  { struttura: "Tutta nata storia", camera: "Tutta nata storia" },
+  { struttura: "Una notte a napoli", camera: "una notte a napoli" }
+];
+
+// --- ROTTE PER IL DATABASE (SUPABASE) ---
+
 app.post("/api/save-laundry", async (req, res) => {
   try {
     const { month_key, cost } = req.body;
     const { error } = await supabase
       .from('laundry_costs')
       .upsert({ month_key, cost }, { onConflict: 'month_key' });
-    
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Rotta per leggere i costi (usata per vedere i dati salvati)
 app.get("/api/get-laundry", async (req, res) => {
   try {
     const { month_key } = req.query;
@@ -35,20 +63,106 @@ app.get("/api/get-laundry", async (req, res) => {
       .select('cost')
       .eq('month_key', month_key)
       .single();
-    
     if (error && error.code !== 'PGRST116') throw error; 
     res.json({ cost: data ? data.cost : null });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Serve il file index.html
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+// --- FUNZIONI E ROTTE PER CIAOBOOKING ---
+
+function normalizeText(value) { return String(value || "").toLowerCase().trim().replace(/[’`]/g, "'").replace(/\s+/g, " "); }
+function monthKey(dateStr) { const d = new Date(dateStr + "T00:00:00"); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
+function monthLabel(key) { const [y, m] = key.split("-"); const mesi = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"]; return `${mesi[Number(m) - 1]} ${y}`; }
+function monthsBetween(from, to) { const start = new Date(from + "T00:00:00"); const end = new Date(to + "T00:00:00"); const months = []; const d = new Date(start.getFullYear(), start.getMonth(), 1); while (d <= end) { months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); d.setMonth(d.getMonth() + 1); } return months; }
+function getRoomName(r) { return r.room_name || r.unit?.name || r.unit?.unit_category?.name || r.room_type?.name || "Camera senza nome"; }
+function getPropertyName(r) { return r.property_name || r.property?.name || r.unit?.property?.name || "Struttura senza nome"; }
+
+function canonicalize(struttura, camera) {
+  let prop = String(struttura || "").trim();
+  let cam = String(camera || "").trim();
+  const p = normalizeText(prop);
+  const c = normalizeText(cam);
+  const text = `${p} ${c}`;
+  if (text.includes("claudia") || text.includes("lory")) return null;
+  if (c.includes("camera senza nome") || c === "—" || c === "-") return null;
+  if (p.includes("san giovanni") && c.includes("o' sole mio nr x2")) { prop = "GG-ROOM - San Giovanni"; cam = "O' Sole Mio"; }
+  if (p.includes("s. brigida") && (c.includes("totò srsc x2") || c.includes("toto srsc x2"))) { prop = "S. Brigida GG-Grow"; cam = "Totò"; }
+  if (p.includes("terrazza") && c.includes("terrazza srsc x2")) { prop = "Terrazza GG-Grow"; cam = "Terrazza"; }
+  if (p.includes("tutta nata storia") && (c.includes("tutta nata storia nr x5") || c.includes("tutta nata storia sr x5"))) { prop = "Tutta nata storia"; cam = "Tutta nata storia"; }
+  const active = ACTIVE_ROOMS.find(r => normalizeText(r.struttura) === normalizeText(prop) && normalizeText(r.camera) === normalizeText(cam));
+  return active ? { struttura: active.struttura, camera: active.camera } : null;
+}
+
+async function getToken() {
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedToken && cachedTokenExpires > now + 60) return cachedToken;
+  const form = new FormData();
+  form.append("email", EMAIL);
+  form.append("password", PASSWORD);
+  form.append("source", SOURCE);
+  const res = await fetch(`${API_BASE}/api/public/login`, { method: "POST", headers: { "locale": LOCALE }, body: form });
+  const json = await res.json();
+  if (!res.ok) throw new Error("Login CiaoBooking fallito");
+  cachedToken = json.data.token;
+  cachedTokenExpires = json.data.expiresAt || now + 3600;
+  return cachedToken;
+}
+
+async function fetchReservations(from, to) {
+  const token = await getToken();
+  let all = [];
+  let limit = 200;
+  let offset = 0;
+  while (true) {
+    const url = new URL(`${API_BASE}/api/public/reservations`);
+    url.searchParams.set("from", from); url.searchParams.set("to", to); url.searchParams.set("status", "2");
+    url.searchParams.set("limit", String(limit)); url.searchParams.set("offset", String(offset));
+    const res = await fetch(url, { headers: { "Accept": "application/json", "Authorization": `Bearer ${token}` } });
+    const json = await res.json();
+    if (!res.ok) throw new Error("Errore CiaoBooking HTTP " + res.status);
+    const rows = json.data?.collection || [];
+    all = all.concat(rows);
+    if (rows.length < limit) break;
+    offset += limit;
+  }
+  return all;
+}
+
+app.get("/api/report", async (req, res) => {
+  try {
+    const from = req.query.from; const to = req.query.to;
+    if (!from || !to) return res.status(400).json({ error: "Date mancanti" });
+    const reservations = await fetchReservations(from, to);
+    const months = monthsBetween(from, to);
+    const roomReport = {}; const structureReport = {};
+    for (const active of ACTIVE_ROOMS) {
+      const roomKey = `${active.struttura}|||${active.camera}`;
+      roomReport[roomKey] = { struttura: active.struttura, camera: active.camera, months: {} };
+      months.forEach(m => roomReport[roomKey].months[m] = 0);
+      if (!structureReport[active.struttura]) {
+        structureReport[active.struttura] = { struttura: active.struttura, months: {} };
+        months.forEach(m => structureReport[active.struttura].months[m] = 0);
+      }
+    }
+    for (const r of reservations) {
+      const checkout = r.end_date; if (!checkout || checkout < from || checkout > to) continue;
+      const clean = canonicalize(getPropertyName(r), getRoomName(r)); if (!clean) continue;
+      const mk = monthKey(checkout); const roomKey = `${clean.struttura}|||${clean.camera}`;
+      if (roomReport[roomKey] && roomReport[roomKey].months[mk] !== undefined) roomReport[roomKey].months[mk]++;
+      if (structureReport[clean.struttura] && structureReport[clean.struttura].months[mk] !== undefined) structureReport[clean.struttura].months[mk]++;
+    }
+    const roomRows = Object.values(roomReport).map(row => {
+      const values = months.map(m => row.months[m] || 0);
+      return { struttura: row.struttura, camera: row.camera, values, total: values.reduce((a, b) => a + b, 0) };
+    }).sort((a, b) => b.total - a.total);
+    const structureRows = Object.values(structureReport).map(row => {
+      const values = months.map(m => row.months[m] || 0);
+      return { struttura: row.struttura, values, total: values.reduce((a, b) => a + b, 0) };
+    }).sort((a, b) => b.total - a.total);
+    res.json({ months: months.map(m => ({ key: m, label: monthLabel(m) })), rows: roomRows, structures: structureRows, totalCheckout: roomRows.reduce((sum, r) => sum + r.total, 0) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.listen(port, () => {
-  console.log(`Server attivo sulla porta ${port}`);
-});
+app.listen(process.env.PORT || 3000, () => { console.log("Server avviato"); });
