@@ -17,6 +17,7 @@ button{background:#0d6efd;color:white;border:none;cursor:pointer; font-weight: b
 button:hover{background:#0b5ed7;}
 button.range-btn{background:#6f42c1;}
 button.secondary{background:#198754;}
+button.secondary:hover{background:#157347;}
 .cost-grid{display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 15px; margin-bottom: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px; border: 1px dashed #ccc;}
 .cost-item input{width: 100%; box-sizing: border-box; margin-top: 5px;}
 table{width:100%;border-collapse:collapse;margin-top:15px;background:white; font-size: 14px;}
@@ -29,6 +30,8 @@ td:first-child,th:first-child{text-align:left;}
 .report-section{margin-top: 35px; padding-top: 25px; border-top: 3px solid #eee;}
 .badge-info{background: #e7f3ff; color: #004085; padding: 10px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #0d6efd;}
 .active-months-badge{display:inline-block; background:#ffeb3b; color:#333; padding:5px 10px; border-radius:4px; font-size:14px; margin-bottom:10px; font-weight:bold; border: 1px solid #cddc39;}
+.btn-group{display: flex; gap: 10px; width: 100%;}
+.btn-group button{flex: 1;}
 </style>
 </head>
 <body>
@@ -57,14 +60,18 @@ td:first-child,th:first-child{text-align:left;}
 
   <div class="cost-grid" id="costGrid"></div>
 
-  <button onclick="salvaECalcola()" style="width: 100%; padding: 15px;">SALVA E CALCOLA MESE SINGOLO</button>
+  <div class="btn-group">
+    <button onclick="salvaECalcola()" style="padding: 15px;">SALVA E CALCOLA MESE SINGOLO</button>
+    <button class="secondary" onclick="downloadMonthlyCSV()" style="padding: 15px;">SCARICA CSV MESE</button>
+  </div>
+  
   <div id="message" class="message"></div>
   <div id="reportContainer" style="display: none; margin-top: 20px;"><div id="reportTable"></div></div>
 </div>
 
 <div class="box report-section">
   <h1>2. Report Storico (Analisi Periodo)</h1>
-  <p>Calcola la media sui checkout in un arco di tempo. <br><strong style="color:#b00020;">I mesi in cui non hai inserito costi vengono automaticamente esclusi dai checkout totali per non abbassare la media.</strong></p>
+  <p>Calcola la media sui checkout in un arco di tempo. <br><strong style="color:#b00020;">I mesi senza importi vengono ignorati per non abbassare la media.</strong></p>
   
   <div class="controls">
     <div>
@@ -85,6 +92,7 @@ td:first-child,th:first-child{text-align:left;}
       <select id="rangeToMonth"></select>
     </div>
     <button class="range-btn" onclick="loadRangeReport()">GENERA REPORT PERIODO</button>
+    <button class="secondary" id="btnDownloadRange" style="display:none;" onclick="downloadRangeCSV()">SCARICA CSV PERIODO</button>
   </div>
 
   <div id="rangeMessage" class="message"></div>
@@ -105,6 +113,9 @@ const mapping = {
 };
 
 const monthNames = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+
+let lastMonthlyData = null; // Memoria per CSV
+let lastRangeData = null;   // Memoria per CSV
 
 function euro(value){ return new Intl.NumberFormat("it-IT", {style:"currency",currency:"EUR"}).format(value || 0); }
 
@@ -142,6 +153,7 @@ function getPeriodInfo(yId, mId){
   const lastDay = new Date(y, Number(document.getElementById(mId).value) + 1, 0);
   return {
     key: `str_cost_v1_${y}_${m}`, 
+    label: `${monthNames[Number(m)-1]} ${y}`,
     from: `${y}-${m}-01`,
     to: `${y}-${m}-${String(lastDay.getDate()).padStart(2, "0")}`
   };
@@ -170,37 +182,35 @@ async function salvaECalcola(){
 
   try {
     const inputs = document.querySelectorAll('.cost-item input');
-    
+    const costsToSave = {};
     for (let inp of inputs) {
       const val = parseFloat(inp.value) || 0;
+      costsToSave[inp.getAttribute('data-name')] = val;
       const res = await fetch('/api/save-structure-cost', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ structure_name: inp.getAttribute('data-name'), month_key: p.key, cost: val })
       });
-      if(!res.ok) throw new Error(`Errore di salvataggio. Riprova.`);
+      if(!res.ok) throw new Error(`Errore di salvataggio.`);
     }
 
     const resCb = await fetch(`/api/report?from=${p.from}&to=${p.to}`);
-    if(!resCb.ok) throw new Error("Errore durante lo scaricamento da CiaoBooking.");
-    
     const data = await resCb.json();
+    
+    lastMonthlyData = { structuresCb: data.structures, title: p.label, costs: costsToSave };
     renderTable(data.structures, "reportTable", "reportContainer");
     
-    msg.className = "message success"; 
-    msg.innerText = "Dati memorizzati online e report calcolato correttamente!";
-  } catch (err) { 
-    msg.className = "message error"; 
-    msg.innerText = err.message; 
-  }
+    msg.className = "message success"; msg.innerText = "Dati salvati e report calcolato!";
+  } catch (err) { msg.className = "message error"; msg.innerText = err.message; }
 }
 
 async function loadRangeReport(){
   const msg = document.getElementById("rangeMessage");
   const container = document.getElementById("rangeReportContainer");
   const activeDisplay = document.getElementById("activeMonthsDisplay");
-  msg.className = "message"; msg.innerText = "Recupero storico dal database in corso...";
+  msg.className = "message"; msg.innerText = "Recupero storico dal database...";
   container.style.display = "none";
+  document.getElementById("btnDownloadRange").style.display = "none";
 
   const fYear = Number(document.getElementById("rangeFromYear").value);
   const fMonth = Number(document.getElementById("rangeFromMonth").value);
@@ -213,11 +223,8 @@ async function loadRangeReport(){
 
   try {
     const combinedCosts = {};
-    const detailedCosts = {}; // Per salvare i costi mese per mese
-    struttureVisualizzate.forEach(s => {
-        combinedCosts[s] = 0;
-        detailedCosts[s] = {};
-    });
+    const detailedCosts = {}; 
+    struttureVisualizzate.forEach(s => { combinedCosts[s] = 0; detailedCosts[s] = {}; });
     
     const activeMonths = new Set();
     const activeLabels = [];
@@ -234,63 +241,52 @@ async function loadRangeReport(){
       if(res.ok) {
         const data = await res.json();
         let monthHasValue = false;
-        
         data.forEach(item => { 
           if(combinedCosts[item.structure_name] !== undefined) {
              combinedCosts[item.structure_name] += item.cost;
-             detailedCosts[item.structure_name][label] = item.cost; // Salvo per colonna singola
+             detailedCosts[item.structure_name][label] = item.cost;
           }
           if(item.cost > 0) monthHasValue = true; 
         });
-        
-        if(monthHasValue) {
-            activeMonths.add(cbKey);
-            activeLabels.push(label);
-        }
+        if(monthHasValue) { activeMonths.add(cbKey); activeLabels.push(label); }
       }
       temp.setMonth(temp.getMonth() + 1);
     }
 
-    if(activeMonths.size === 0) {
-      msg.className = "message error"; 
-      msg.innerText = "Nessun costo trovato nel database per i mesi selezionati. Impossibile fare la media."; 
-      return;
-    }
+    if(activeMonths.size === 0) { msg.className = "message error"; msg.innerText = "Nessun costo trovato."; return; }
 
     const lastDay = new Date(tYear, tMonth + 1, 0);
     const fromStr = `${fYear}-${String(fMonth+1).padStart(2,"0")}-01`;
     const toStr = `${tYear}-${String(tMonth+1).padStart(2,"0")}-${String(lastDay.getDate()).padStart(2,"0")}`;
     
     const resRep = await fetch(`/api/report?from=${fromStr}&to=${toStr}`);
-    if(!resRep.ok) throw new Error("Errore scaricamento storico CiaoBooking");
     const reportData = await resRep.json();
 
     const activeIndices = [];
-    reportData.months.forEach((monthObj, idx) => {
-       if(activeMonths.has(monthObj.key)) activeIndices.push(idx);
-    });
+    reportData.months.forEach((monthObj, idx) => { if(activeMonths.has(monthObj.key)) activeIndices.push(idx); });
 
     activeDisplay.innerHTML = `<div class="active-months-badge">✅ Calcolo basato solo sui checkout di: ${activeLabels.join(", ")}</div>`;
     
-    // Ora passo anche le etichette dei mesi e i costi dettagliati per generare le colonne
+    lastRangeData = { 
+        structuresCb: reportData.structures, 
+        combinedCosts, 
+        activeIndices, 
+        activeLabels, 
+        detailedCosts, 
+        title: `Periodo ${monthNames[fMonth]} ${fYear} - ${monthNames[tMonth]} ${tYear}`
+    };
+
     renderTable(reportData.structures, "rangeReportTable", "rangeReportContainer", combinedCosts, activeIndices, activeLabels, detailedCosts);
     
-    msg.className = "message success"; 
-    msg.innerText = `Report completato. Mesi validi analizzati: ${activeMonths.size}.`;
+    msg.className = "message success"; msg.innerText = "Report periodo caricato!";
+    document.getElementById("btnDownloadRange").style.display = "inline-block";
   } catch (e) { msg.className = "message error"; msg.innerText = "Errore: " + e.message; }
 }
 
 function renderTable(struttureCb, tableId, containerId, externalCosts = null, activeIndices = null, activeLabels = null, detailedCosts = null){
   let html = "<table><thead><tr><th>Gruppo Struttura</th>";
-  
-  // Aggiungo le intestazioni dei mesi validi se ci sono
-  if(activeLabels) {
-      activeLabels.forEach(label => {
-          html += `<th>Spesa<br>${label}</th>`;
-      });
-  }
-  
-  html += "<th>Costo Totale<br>Periodo</th><th>Checkouts<br>(Solo mesi attivi)</th><th>Media /<br>Checkout</th></tr></thead><tbody>";
+  if(activeLabels) activeLabels.forEach(label => { html += `<th>Spesa<br>${label}</th>`; });
+  html += "<th>Costo Totale<br>Periodo</th><th>Checkouts</th><th>Media / Checkout</th></tr></thead><tbody>";
   
   let tCosti = 0, tCheck = 0;
   let totalsByMonth = {};
@@ -308,11 +304,8 @@ function renderTable(struttureCb, tableId, containerId, externalCosts = null, ac
     mapping[nome].forEach(orig => {
       const d = struttureCb.find(s => s.struttura === orig);
       if(d) {
-        if(activeIndices) {
-           activeIndices.forEach(idx => check += (d.values[idx] || 0));
-        } else {
-           check += d.total;
-        }
+        if(activeIndices) activeIndices.forEach(idx => check += (d.values[idx] || 0));
+        else check += d.total;
       }
     });
 
@@ -320,8 +313,6 @@ function renderTable(struttureCb, tableId, containerId, externalCosts = null, ac
     tCosti += costo; tCheck += check;
 
     html += `<tr><td><strong>${nome}</strong></td>`;
-    
-    // Aggiungo le celle con i costi del singolo mese
     if(activeLabels && detailedCosts) {
         activeLabels.forEach(label => {
             const costMese = detailedCosts[nome][label] || 0;
@@ -329,24 +320,85 @@ function renderTable(struttureCb, tableId, containerId, externalCosts = null, ac
             html += `<td>${euro(costMese)}</td>`;
         });
     }
-
     html += `<td><strong>${euro(costo)}</strong></td><td>${check}</td><td><strong style="color:#0d6efd;">${euro(media)}</strong></td></tr>`;
   });
 
   const mediaT = tCheck > 0 ? tCosti / tCheck : 0;
-  html += `<tr style="background:#eef6ff;"><td><strong>TOTALE GENERALE</strong></td>`;
-  
-  // Aggiungo i totali in fondo alla tabella per i singoli mesi
-  if(activeLabels) {
-      activeLabels.forEach(label => {
-          html += `<td><strong>${euro(totalsByMonth[label])}</strong></td>`;
-      });
-  }
-
+  html += `<tr style="background:#eef6ff;"><td><strong>TOTALE</strong></td>`;
+  if(activeLabels) activeLabels.forEach(label => { html += `<td><strong>${euro(totalsByMonth[label])}</strong></td>`; });
   html += `<td><strong>${euro(tCosti)}</strong></td><td><strong>${tCheck}</strong></td><td><strong style="color:#198754;">${euro(mediaT)}</strong></td></tr></tbody></table>`;
   
   document.getElementById(tableId).innerHTML = html;
   document.getElementById(containerId).style.display = "block";
+}
+
+// --- FUNZIONI PER IL CSV ---
+
+function downloadMonthlyCSV() {
+    if(!lastMonthlyData) { alert("Prima calcola il report del mese."); return; }
+    let csv = "Gruppo Struttura;Costo Mese;Checkouts;Media Checkout\n";
+    let tCosti = 0, tCheck = 0;
+
+    struttureVisualizzate.forEach(nome => {
+        let costo = lastMonthlyData.costs[nome] || 0;
+        let check = 0;
+        mapping[nome].forEach(orig => {
+            const d = lastMonthlyData.structuresCb.find(s => s.struttura === orig);
+            if(d) check += d.total;
+        });
+        const media = check > 0 ? costo / check : 0;
+        tCosti += costo; tCheck += check;
+        csv += `${nome};${costo.toFixed(2).replace('.',',')};${check};${media.toFixed(2).replace('.',',')}\n`;
+    });
+    csv += `TOTALE;${tCosti.toFixed(2).replace('.',',')};${tCheck};${(tCheck > 0 ? tCosti/tCheck : 0).toFixed(2).replace('.',',')}\n`;
+    downloadTextCSV(csv, `costi-strutture-${lastMonthlyData.title.replace(' ','-')}.csv`);
+}
+
+function downloadRangeCSV() {
+    if(!lastRangeData) { alert("Prima calcola il report periodo."); return; }
+    let header = "Gruppo Struttura;";
+    lastRangeData.activeLabels.forEach(l => header += `Spesa ${l};`);
+    header += "Costo Totale;Checkouts;Media Checkout\n";
+    
+    let csv = header;
+    let tCosti = 0, tCheck = 0;
+    let totalsByMonth = {};
+    lastRangeData.activeLabels.forEach(l => totalsByMonth[l] = 0);
+
+    struttureVisualizzate.forEach(nome => {
+        let costo = lastRangeData.combinedCosts[nome];
+        let check = 0;
+        mapping[nome].forEach(orig => {
+            const d = lastRangeData.structuresCb.find(s => s.struttura === orig);
+            if(d) lastRangeData.activeIndices.forEach(idx => check += (d.values[idx] || 0));
+        });
+        const media = check > 0 ? costo / check : 0;
+        tCosti += costo; tCheck += check;
+
+        let row = `${nome};`;
+        lastRangeData.activeLabels.forEach(label => {
+            const costMese = lastRangeData.detailedCosts[nome][label] || 0;
+            totalsByMonth[label] += costMese;
+            row += `${costMese.toFixed(2).replace('.',',')};`;
+        });
+        row += `${costo.toFixed(2).replace('.',',')};${check};${media.toFixed(2).replace('.',',')}\n`;
+        csv += row;
+    });
+
+    let footer = "TOTALE;";
+    lastRangeData.activeLabels.forEach(label => { footer += `${totalsByMonth[label].toFixed(2).replace('.',',')};`; });
+    footer += `${tCosti.toFixed(2).replace('.',',')};${tCheck};${(tCheck > 0 ? tCosti/tCheck : 0).toFixed(2).replace('.',',')}\n`;
+    csv += footer;
+    
+    downloadTextCSV(csv, `report-periodo-costi.csv`);
+}
+
+function downloadTextCSV(text, filename){
+  const blob = new Blob(["\ufeff" + text], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
 }
 
 window.onload = () => {
