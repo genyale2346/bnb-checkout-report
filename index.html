@@ -7,6 +7,11 @@
 <style>
 body{font-family:Arial,sans-serif;max-width:1400px;margin:auto;padding:30px;background:#f4f4f4;}
 .box{background:white;padding:25px;border-radius:12px;box-shadow:0 0 10px rgba(0,0,0,0.08);margin-bottom:30px;}
+/* Stile per il menu di navigazione */
+.nav-menu{margin-bottom: 20px;}
+.nav-menu a{display:inline-block; padding: 10px 20px; background: #e0e0e0; color: #333; text-decoration: none; border-radius: 6px; margin-right: 10px; font-weight: bold;}
+.nav-menu a.active{background: #0d6efd; color: white;}
+
 .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end;}
 label{display:block;font-weight:bold;margin-bottom:4px;}
 input,button,select{padding:10px;font-size:16px;}
@@ -27,6 +32,11 @@ hr{margin:35px 0;}
 </style>
 </head>
 <body>
+
+<div class="nav-menu">
+    <a href="index.html" class="active">Report Camere (Lavanderia)</a>
+    <a href="costi_strutture.html">Analisi Costi Strutture ➡</a>
+</div>
 
 <div class="box">
   <h1>Report Checkout e Lavanderia</h1>
@@ -172,8 +182,6 @@ function getSelectedPeriod(){
   return {year,month,from:formatDateLocal(firstDay),to:formatDateLocal(lastDay)};
 }
 
-// --- NUOVE FUNZIONI SYNC ONLINE ---
-
 async function saveLaundryCost(){
   const p = getSelectedPeriod();
   const cost = document.getElementById("laundryCost").value;
@@ -220,8 +228,6 @@ async function sumSavedLaundryCosts(months){
   const results = await Promise.all(promises);
   return results.reduce((a, b) => a + b, 0);
 }
-
-// --- FINE FUNZIONI SYNC ---
 
 function setupSelectors(){
   fillYears(document.getElementById("yearSelect"));
@@ -273,7 +279,7 @@ function getRangePeriod(){
 async function loadReport(){
   const p = getSelectedPeriod();
   const laundryCost = parseFloat(document.getElementById("laundryCost").value || "0");
-  await saveLaundryCost(); // Aspetta che salvi online
+  await saveLaundryCost(); 
   await loadGenericReport({
     from:p.from,
     to:p.to,
@@ -297,7 +303,7 @@ async function loadRangeReport(){
     return;
   }
 
-  const laundryCost = await sumSavedLaundryCosts(p.months); // Carica la somma dal database
+  const laundryCost = await sumSavedLaundryCosts(p.months); 
   currentRangeMonthsCount = p.months.length;
 
   await loadGenericReport({
