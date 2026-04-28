@@ -60,7 +60,7 @@ hr{margin:35px 0;}
     <div>
       <label>Costo lavanderia totale €</label>
       <input type="number" id="laundryCost" step="0.01" placeholder="es. 900">
-      <div class="small-note">Si salva automaticamente per mese/anno.</div>
+      <div class="small-note" id="saveStatus">I dati sono sincronizzati online.</div>
     </div>
 
     <button onclick="loadReport()">Calcola mese</button>
@@ -118,7 +118,6 @@ hr{margin:35px 0;}
 
 <script>
 const monthNames = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-
 let currentData = null;
 let currentLaundryCost = 0;
 let currentQuotaPerCamera = 0;
@@ -173,16 +172,56 @@ function getSelectedPeriod(){
   return {year,month,from:formatDateLocal(firstDay),to:formatDateLocal(lastDay)};
 }
 
-function saveLaundryCost(){
+// --- NUOVE FUNZIONI SYNC ONLINE ---
+
+async function saveLaundryCost(){
   const p = getSelectedPeriod();
-  localStorage.setItem(getMonthStorageKey(p.year, p.month), document.getElementById("laundryCost").value);
+  const cost = document.getElementById("laundryCost").value;
+  const status = document.getElementById("saveStatus");
+  const month_key = getMonthStorageKey(p.year, p.month);
+
+  status.innerText = "Salvataggio online...";
+  try {
+    await fetch('/api/save-laundry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ month_key, cost: parseFloat(cost) || 0 })
+    });
+    status.innerText = "Sincronizzato correttamente.";
+  } catch (e) {
+    status.innerText = "Errore sincronizzazione!";
+  }
 }
 
-function loadSavedLaundryCost(){
+async function loadSavedLaundryCost(){
   const p = getSelectedPeriod();
-  const saved = localStorage.getItem(getMonthStorageKey(p.year, p.month));
-  document.getElementById("laundryCost").value = saved || "";
+  const month_key = getMonthStorageKey(p.year, p.month);
+  const input = document.getElementById("laundryCost");
+  
+  input.value = ""; 
+  try {
+    const res = await fetch(`/api/get-laundry?month_key=${month_key}`);
+    const data = await res.json();
+    input.value = data.cost !== null ? data.cost : "";
+  } catch (e) {
+    console.error("Errore caricamento dati online");
+  }
 }
+
+async function sumSavedLaundryCosts(months){
+  const promises = months.map(async (item) => {
+    const month_key = getMonthStorageKey(item.year, item.month);
+    try {
+      const res = await fetch(`/api/get-laundry?month_key=${month_key}`);
+      const data = await res.json();
+      return parseFloat(data.cost || "0");
+    } catch (e) { return 0; }
+  });
+  const results = await Promise.all(promises);
+  return results.reduce((a, b) => a + b, 0);
+}
+
+// --- FINE FUNZIONI SYNC ---
 
 function setupSelectors(){
   fillYears(document.getElementById("yearSelect"));
@@ -231,18 +270,10 @@ function getRangePeriod(){
   };
 }
 
-function sumSavedLaundryCosts(months){
-  return months.reduce((sum, item) => {
-    const raw = localStorage.getItem(getMonthStorageKey(item.year, item.month));
-    return sum + parseFloat(raw || "0");
-  }, 0);
-}
-
 async function loadReport(){
   const p = getSelectedPeriod();
   const laundryCost = parseFloat(document.getElementById("laundryCost").value || "0");
-  saveLaundryCost();
-
+  await saveLaundryCost(); // Aspetta che salvi online
   await loadGenericReport({
     from:p.from,
     to:p.to,
@@ -266,7 +297,7 @@ async function loadRangeReport(){
     return;
   }
 
-  const laundryCost = sumSavedLaundryCosts(p.months);
+  const laundryCost = await sumSavedLaundryCosts(p.months); // Carica la somma dal database
   currentRangeMonthsCount = p.months.length;
 
   await loadGenericReport({
@@ -350,7 +381,6 @@ function renderRoomTable(data, quotaPerCamera, tableId){
   let html = "<table><thead><tr><th>Struttura</th><th>Camera</th>";
 
   data.months.forEach(m => html += `<th>${m.label}</th>`);
-
   html += "<th>Totale checkout</th><th>Quota lavanderia camera</th><th>Costo medio lavata camera</th></tr></thead><tbody>";
 
   if(data.rows.length === 0){
@@ -366,7 +396,6 @@ function renderRoomTable(data, quotaPerCamera, tableId){
     html += `<td><strong>${euro(quotaPerCamera)}</strong></td>`;
     html += `<td><strong>${euro(costoMedioLavata)}</strong></td></tr>`;
   });
-
   html += "</tbody></table>";
   document.getElementById(tableId).innerHTML = html;
 }
@@ -398,7 +427,6 @@ function renderStructureTable(data, quotaPerCamera, tableId){
     html += `<td><strong>${euro(quotaStruttura)}</strong></td>`;
     html += `<td><strong>${euro(costoMedioStruttura)}</strong></td></tr>`;
   });
-
   html += "</tbody></table>";
   document.getElementById(tableId).innerHTML = html;
 }
@@ -407,25 +435,20 @@ function buildCSV(data, laundryCost, quotaPerCamera, filePrefix){
   const lines = [];
   lines.push(filePrefix);
   lines.push("");
-
   lines.push("REPORT PER CAMERE");
   lines.push(["Struttura","Camera",...data.months.map(m => m.label),"Totale checkout","Quota lavanderia camera","Costo medio lavata camera"].join(";"));
-
   data.rows.forEach(row => {
     const costoMedioLavata = row.total > 0 ? quotaPerCamera / row.total : 0;
     lines.push([row.struttura,row.camera,...row.values,row.total,quotaPerCamera.toFixed(2).replace(".", ","),costoMedioLavata.toFixed(2).replace(".", ",")].join(";"));
   });
-
   const camerePerStruttura = {};
   data.rows.forEach(row => {
     if(!camerePerStruttura[row.struttura]) camerePerStruttura[row.struttura] = 0;
     camerePerStruttura[row.struttura]++;
   });
-
   lines.push("");
   lines.push("REPORT PER STRUTTURE");
   lines.push(["Struttura",...data.months.map(m => m.label),"Totale checkout","Camere conteggiate","Quota lavanderia struttura","Costo medio lavata struttura"].join(";"));
-
   (data.structures || []).forEach(row => {
     const numeroCamereStruttura = camerePerStruttura[row.struttura] || 0;
     const quotaStruttura = quotaPerCamera * numeroCamereStruttura;
@@ -433,7 +456,6 @@ function buildCSV(data, laundryCost, quotaPerCamera, filePrefix){
 
     lines.push([row.struttura,...row.values,row.total,numeroCamereStruttura,quotaStruttura.toFixed(2).replace(".", ","),costoMedioStruttura.toFixed(2).replace(".", ",")].join(";"));
   });
-
   lines.push("");
   lines.push(["Totale checkout",data.totalCheckout].join(";"));
   lines.push(["Numero camere conteggiate",data.rows.length].join(";"));
