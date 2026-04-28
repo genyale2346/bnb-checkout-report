@@ -19,7 +19,7 @@ button.range-btn{background:#6f42c1;}
 button.secondary{background:#198754;}
 .cost-grid{display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 15px; margin-bottom: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px; border: 1px dashed #ccc;}
 .cost-item input{width: 100%; box-sizing: border-box; margin-top: 5px;}
-table{width:100%;border-collapse:collapse;margin-top:15px;background:white;}
+table{width:100%;border-collapse:collapse;margin-top:15px;background:white; font-size: 14px;}
 th,td{border:1px solid #ddd;padding:12px;text-align:center;}
 th{background:#f1f1f1;}
 td:first-child,th:first-child{text-align:left;}
@@ -90,7 +90,7 @@ td:first-child,th:first-child{text-align:left;}
   <div id="rangeMessage" class="message"></div>
   <div id="rangeReportContainer" style="display: none;">
     <div id="activeMonthsDisplay"></div>
-    <div id="rangeReportTable"></div>
+    <div id="rangeReportTable" style="overflow-x: auto;"></div>
   </div>
 </div>
 
@@ -213,8 +213,13 @@ async function loadRangeReport(){
 
   try {
     const combinedCosts = {};
-    struttureVisualizzate.forEach(s => combinedCosts[s] = 0);
-    const activeMonths = new Set(); // Mesi con almeno un costo > 0
+    const detailedCosts = {}; // Per salvare i costi mese per mese
+    struttureVisualizzate.forEach(s => {
+        combinedCosts[s] = 0;
+        detailedCosts[s] = {};
+    });
+    
+    const activeMonths = new Set();
     const activeLabels = [];
     
     let temp = new Date(start);
@@ -231,11 +236,13 @@ async function loadRangeReport(){
         let monthHasValue = false;
         
         data.forEach(item => { 
-          if(combinedCosts[item.structure_name] !== undefined) combinedCosts[item.structure_name] += item.cost;
+          if(combinedCosts[item.structure_name] !== undefined) {
+             combinedCosts[item.structure_name] += item.cost;
+             detailedCosts[item.structure_name][label] = item.cost; // Salvo per colonna singola
+          }
           if(item.cost > 0) monthHasValue = true; 
         });
         
-        // Se c'è un costo in questo mese, lo consideriamo "valido" per prendere i checkout
         if(monthHasValue) {
             activeMonths.add(cbKey);
             activeLabels.push(label);
@@ -258,23 +265,36 @@ async function loadRangeReport(){
     if(!resRep.ok) throw new Error("Errore scaricamento storico CiaoBooking");
     const reportData = await resRep.json();
 
-    // Trovo quali indici dell'array CiaoBooking corrispondono ai mesi "validi"
     const activeIndices = [];
     reportData.months.forEach((monthObj, idx) => {
        if(activeMonths.has(monthObj.key)) activeIndices.push(idx);
     });
 
     activeDisplay.innerHTML = `<div class="active-months-badge">✅ Calcolo basato solo sui checkout di: ${activeLabels.join(", ")}</div>`;
-    renderTable(reportData.structures, "rangeReportTable", "rangeReportContainer", combinedCosts, activeIndices);
+    
+    // Ora passo anche le etichette dei mesi e i costi dettagliati per generare le colonne
+    renderTable(reportData.structures, "rangeReportTable", "rangeReportContainer", combinedCosts, activeIndices, activeLabels, detailedCosts);
     
     msg.className = "message success"; 
-    msg.innerText = `Report completato. Sono stati ignorati i mesi senza importi.`;
+    msg.innerText = `Report completato. Mesi validi analizzati: ${activeMonths.size}.`;
   } catch (e) { msg.className = "message error"; msg.innerText = "Errore: " + e.message; }
 }
 
-function renderTable(struttureCb, tableId, containerId, externalCosts = null, activeIndices = null){
-  let html = "<table><thead><tr><th>Gruppo Struttura</th><th>Costo Periodo</th><th>Checkouts (Solo mesi attivi)</th><th>Media / Checkout</th></tr></thead><tbody>";
+function renderTable(struttureCb, tableId, containerId, externalCosts = null, activeIndices = null, activeLabels = null, detailedCosts = null){
+  let html = "<table><thead><tr><th>Gruppo Struttura</th>";
+  
+  // Aggiungo le intestazioni dei mesi validi se ci sono
+  if(activeLabels) {
+      activeLabels.forEach(label => {
+          html += `<th>Spesa<br>${label}</th>`;
+      });
+  }
+  
+  html += "<th>Costo Totale<br>Periodo</th><th>Checkouts<br>(Solo mesi attivi)</th><th>Media /<br>Checkout</th></tr></thead><tbody>";
+  
   let tCosti = 0, tCheck = 0;
+  let totalsByMonth = {};
+  if(activeLabels) activeLabels.forEach(l => totalsByMonth[l] = 0);
 
   struttureVisualizzate.forEach(nome => {
     let costo = 0;
@@ -289,7 +309,6 @@ function renderTable(struttureCb, tableId, containerId, externalCosts = null, ac
       const d = struttureCb.find(s => s.struttura === orig);
       if(d) {
         if(activeIndices) {
-           // SOMMA SOLO I CHECKOUT DEI MESI IN CUI HAI INSERITO IL COSTO!
            activeIndices.forEach(idx => check += (d.values[idx] || 0));
         } else {
            check += d.total;
@@ -300,11 +319,31 @@ function renderTable(struttureCb, tableId, containerId, externalCosts = null, ac
     const media = check > 0 ? costo / check : 0;
     tCosti += costo; tCheck += check;
 
-    html += `<tr><td><strong>${nome}</strong></td><td>${euro(costo)}</td><td>${check}</td><td><strong style="color:#0d6efd;">${euro(media)}</strong></td></tr>`;
+    html += `<tr><td><strong>${nome}</strong></td>`;
+    
+    // Aggiungo le celle con i costi del singolo mese
+    if(activeLabels && detailedCosts) {
+        activeLabels.forEach(label => {
+            const costMese = detailedCosts[nome][label] || 0;
+            totalsByMonth[label] += costMese;
+            html += `<td>${euro(costMese)}</td>`;
+        });
+    }
+
+    html += `<td><strong>${euro(costo)}</strong></td><td>${check}</td><td><strong style="color:#0d6efd;">${euro(media)}</strong></td></tr>`;
   });
 
   const mediaT = tCheck > 0 ? tCosti / tCheck : 0;
-  html += `<tr style="background:#eef6ff;"><td><strong>TOTALE GENERALE</strong></td><td><strong>${euro(tCosti)}</strong></td><td><strong>${tCheck}</strong></td><td><strong style="color:#198754;">${euro(mediaT)}</strong></td></tr></tbody></table>`;
+  html += `<tr style="background:#eef6ff;"><td><strong>TOTALE GENERALE</strong></td>`;
+  
+  // Aggiungo i totali in fondo alla tabella per i singoli mesi
+  if(activeLabels) {
+      activeLabels.forEach(label => {
+          html += `<td><strong>${euro(totalsByMonth[label])}</strong></td>`;
+      });
+  }
+
+  html += `<td><strong>${euro(tCosti)}</strong></td><td><strong>${tCheck}</strong></td><td><strong style="color:#198754;">${euro(mediaT)}</strong></td></tr></tbody></table>`;
   
   document.getElementById(tableId).innerHTML = html;
   document.getElementById(containerId).style.display = "block";
