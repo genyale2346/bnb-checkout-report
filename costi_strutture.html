@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Costi Strutture - Controllo di Gestione</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:1400px;margin:auto;padding:30px;background:#f4f4f4;}
+.box{background:white;padding:25px;border-radius:12px;box-shadow:0 0 10px rgba(0,0,0,0.08);margin-bottom:30px;}
+.nav-menu{margin-bottom: 20px;}
+.nav-menu a{display:inline-block; padding: 10px 20px; background: #e0e0e0; color: #333; text-decoration: none; border-radius: 6px; margin-right: 10px; font-weight: bold;}
+.nav-menu a.active{background: #0d6efd; color: white;}
+.controls{display:flex;flex-wrap:wrap;gap:15px;align-items:end; margin-bottom: 20px;}
+label{display:block;font-weight:bold;margin-bottom:4px;}
+input,button,select{padding:10px;font-size:16px; border: 1px solid #ccc; border-radius: 4px;}
+button{background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;}
+button:hover{background:#0b5ed7;}
+.cost-grid{display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;}
+.cost-item label{font-size: 14px; color: #333;}
+.cost-item input{width: 100%; box-sizing: border-box;}
+table{width:100%;border-collapse:collapse;margin-top:15px;background:white;}
+th,td{border:1px solid #ddd;padding:10px;text-align:center;}
+th{background:#efefef;}
+td:first-child,th:first-child{text-align:left;}
+.message{margin-top:15px;font-weight:bold;}
+.error{color:#b00020;}
+.success{color:#198754;}
+</style>
+</head>
+<body>
+
+<div class="nav-menu">
+    <a href="index.html">⬅ Vai a Report Camere (Lavanderia)</a>
+    <a href="costi_strutture.html" class="active">Analisi Costi Strutture</a>
+</div>
+
+<div class="box">
+  <h1>Analisi Costi per Singola Struttura</h1>
+  <p>Inserisci i costi specifici (es. affitto, bollette, pulizie) per ogni struttura. Il sistema calcolerà il costo medio per checkout nel mese selezionato.</p>
+
+  <div class="controls">
+    <div>
+      <label>Anno</label>
+      <select id="yearSelect" onchange="loadCosts()"></select>
+    </div>
+    <div>
+      <label>Mese</label>
+      <select id="monthSelect" onchange="loadCosts()">
+        <option value="0">Gennaio</option>
+        <option value="1">Febbraio</option>
+        <option value="2">Marzo</option>
+        <option value="3">Aprile</option>
+        <option value="4">Maggio</option>
+        <option value="5">Giugno</option>
+        <option value="6">Luglio</option>
+        <option value="7">Agosto</option>
+        <option value="8">Settembre</option>
+        <option value="9">Ottobre</option>
+        <option value="10">Novembre</option>
+        <option value="11">Dicembre</option>
+      </select>
+    </div>
+  </div>
+
+  <h3>Inserisci Costi (€)</h3>
+  <div class="cost-grid" id="costGrid">
+    </div>
+
+  <button onclick="salvaECalcola()" style="width: 100%; padding: 15px; font-size: 18px; font-weight: bold;">Salva Dati e Calcola Report</button>
+  <div id="message" class="message"></div>
+
+  <div id="reportContainer" style="display: none; margin-top: 30px;">
+    <h2>Report: <span id="reportTitle"></span></h2>
+    <div id="reportTable"></div>
+  </div>
+</div>
+
+<script>
+// Elenco esatto delle tue strutture
+const strutture = [
+  "Yes I Know My Room - Magica Napoli",
+  "Yes I Know My Room - Storico",
+  "Yes I Know My Room - Foria",
+  "GG-ROOM - San Giovanni",
+  "S. Brigida GG-Grow",
+  "Terrazza GG-Grow",
+  "Tutta nata storia",
+  "Una notte a napoli"
+];
+
+const monthNames = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+
+function euro(value){ return new Intl.NumberFormat("it-IT", {style:"currency",currency:"EUR"}).format(value || 0); }
+
+function getSelectedPeriod(){
+  const year = Number(document.getElementById("yearSelect").value);
+  const month = Number(document.getElementById("monthSelect").value);
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const y = firstDay.getFullYear();
+  const m1 = String(firstDay.getMonth() + 1).padStart(2, "0");
+  const d1 = String(firstDay.getDate()).padStart(2, "0");
+  const m2 = String(lastDay.getMonth() + 1).padStart(2, "0");
+  const d2 = String(lastDay.getDate()).padStart(2, "0");
+  
+  return {
+    year, month,
+    from: `${y}-${m1}-${d1}`,
+    to: `${y}-${m2}-${d2}`,
+    month_key: `costi_${y}_${m1}`,
+    title: `${monthNames[month]} ${year}`
+  };
+}
+
+function initPage(){
+  const today = new Date();
+  const ySelect = document.getElementById("yearSelect");
+  for(let y = today.getFullYear() - 3; y <= today.getFullYear() + 1; y++){
+    const opt = document.createElement("option");
+    opt.value = y; opt.textContent = y;
+    if(y === today.getFullYear()) opt.selected = true;
+    ySelect.appendChild(opt);
+  }
+  document.getElementById("monthSelect").value = today.getMonth();
+
+  const grid = document.getElementById("costGrid");
+  strutture.forEach((s, idx) => {
+    grid.innerHTML += `
+      <div class="cost-item">
+        <label><strong>${s}</strong></label>
+        <input type="number" id="cost_${idx}" data-name="${s}" step="0.01" placeholder="0.00">
+      </div>
+    `;
+  });
+
+  loadCosts();
+}
+
+async function loadCosts(){
+  const p = getSelectedPeriod();
+  document.querySelectorAll('.cost-item input').forEach(inp => inp.value = "");
+  document.getElementById("reportContainer").style.display = "none";
+  document.getElementById("message").innerText = "";
+  
+  try {
+    const res = await fetch(`/api/get-structure-costs?month_key=${p.month_key}`);
+    const data = await res.json();
+    data.forEach(item => {
+      const input = document.querySelector(`input[data-name="${item.structure_name}"]`);
+      if(input) input.value = item.cost;
+    });
+  } catch (e) {
+    console.error("Errore caricamento", e);
+  }
+}
+
+async function salvaECalcola(){
+  const msg = document.getElementById("message");
+  const p = getSelectedPeriod();
+  msg.className = "message";
+  msg.innerText = "Sincronizzazione dati e calcolo in corso...";
+
+  try {
+    // 1. Salva i costi di tutte le caselle
+    const inputs = document.querySelectorAll('.cost-item input');
+    const promises = Array.from(inputs).map(async (inp) => {
+      const val = parseFloat(inp.value) || 0;
+      return fetch('/api/save-structure-cost', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ structure_name: inp.getAttribute('data-name'), month_key: p.month_key, cost: val })
+      });
+    });
+    await Promise.all(promises);
+
+    // 2. Scarica i dati da CiaoBooking
+    const res = await fetch(`/api/report?from=${p.from}&to=${p.to}`);
+    const reportData = await res.json();
+    
+    if(!res.ok) throw new Error(reportData.error || "Errore CiaoBooking");
+
+    // 3. Genera la tabella incrociando i dati
+    generaTabella(reportData.structures, p.title);
+    
+    msg.className = "message success";
+    msg.innerText = "Dati sincronizzati e report completato!";
+  } catch (err) {
+    msg.className = "message error";
+    msg.innerText = "Errore: " + err.message;
+  }
+}
+
+function generaTabella(struttureCiaobooking, title){
+  document.getElementById("reportTitle").innerText = title;
+  const container = document.getElementById("reportContainer");
+  let html = "<table><thead><tr><th>Struttura</th><th>Costo Inserito</th><th>Checkouts Mese</th><th>Costo Medio per Checkout</th></tr></thead><tbody>";
+
+  let totaleCosti = 0;
+  let totaleCheckout = 0;
+
+  strutture.forEach(nomeStruttura => {
+    const inp = document.querySelector(`input[data-name="${nomeStruttura}"]`);
+    const costo = parseFloat(inp.value) || 0;
+    
+    // Trova i checkout per questa struttura
+    const datiCb = struttureCiaobooking.find(s => s.struttura === nomeStruttura);
+    const checkout = datiCb ? datiCb.total : 0;
+
+    const costoMedio = checkout > 0 ? costo / checkout : 0;
+
+    totaleCosti += costo;
+    totaleCheckout += checkout;
+
+    html += `<tr>
+      <td><strong>${nomeStruttura}</strong></td>
+      <td>${euro(costo)}</td>
+      <td>${checkout}</td>
+      <td><strong style="color:#0d6efd;">${euro(costoMedio)}</strong></td>
+    </tr>`;
+  });
+
+  const mediaTotale = totaleCheckout > 0 ? totaleCosti / totaleCheckout : 0;
+
+  html += `<tr style="background:#eef6ff; font-size:1.1em;">
+    <td><strong>TOTALE GENERALE</strong></td>
+    <td><strong>${euro(totaleCosti)}</strong></td>
+    <td><strong>${totaleCheckout}</strong></td>
+    <td><strong style="color:#198754;">${euro(mediaTotale)}</strong></td>
+  </tr>`;
+
+  html += "</tbody></table>";
+  document.getElementById("reportTable").innerHTML = html;
+  container.style.display = "block";
+}
+
+window.onload = initPage;
+</script>
+</body>
+</html>
