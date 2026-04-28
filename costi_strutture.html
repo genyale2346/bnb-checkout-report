@@ -28,6 +28,7 @@ td:first-child,th:first-child{text-align:left;}
 .error{color:#b00020;}
 .report-section{margin-top: 35px; padding-top: 25px; border-top: 3px solid #eee;}
 .badge-info{background: #e7f3ff; color: #004085; padding: 10px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #0d6efd;}
+.active-months-badge{display:inline-block; background:#ffeb3b; color:#333; padding:5px 10px; border-radius:4px; font-size:14px; margin-bottom:10px; font-weight:bold; border: 1px solid #cddc39;}
 </style>
 </head>
 <body>
@@ -40,7 +41,7 @@ td:first-child,th:first-child{text-align:left;}
 <div class="box">
   <h1>1. Inserimento Costi Mensili</h1>
   <div class="badge-info">
-    Scegli il mese, inserisci i costi per gruppo e clicca su "Salva". I dati rimarranno memorizzati online.
+    Scegli il mese, inserisci i costi per gruppo e clicca su "Salva".
   </div>
 
   <div class="controls">
@@ -63,7 +64,7 @@ td:first-child,th:first-child{text-align:left;}
 
 <div class="box report-section">
   <h1>2. Report Storico (Analisi Periodo)</h1>
-  <p>Somma i costi salvati e calcola la media sui checkout. <br><strong style="color:#b00020;">Novità:</strong> I mesi vuoti o senza importi verranno ignorati automaticamente per non sballare la media.</p>
+  <p>Calcola la media sui checkout in un arco di tempo. <br><strong style="color:#b00020;">I mesi in cui non hai inserito costi vengono automaticamente esclusi dai checkout totali per non abbassare la media.</strong></p>
   
   <div class="controls">
     <div>
@@ -88,6 +89,7 @@ td:first-child,th:first-child{text-align:left;}
 
   <div id="rangeMessage" class="message"></div>
   <div id="rangeReportContainer" style="display: none;">
+    <div id="activeMonthsDisplay"></div>
     <div id="rangeReportTable"></div>
   </div>
 </div>
@@ -176,10 +178,7 @@ async function salvaECalcola(){
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ structure_name: inp.getAttribute('data-name'), month_key: p.key, cost: val })
       });
-      
-      if(!res.ok) {
-        throw new Error(`Errore di salvataggio. Riprova.`);
-      }
+      if(!res.ok) throw new Error(`Errore di salvataggio. Riprova.`);
     }
 
     const resCb = await fetch(`/api/report?from=${p.from}&to=${p.to}`);
@@ -199,6 +198,7 @@ async function salvaECalcola(){
 async function loadRangeReport(){
   const msg = document.getElementById("rangeMessage");
   const container = document.getElementById("rangeReportContainer");
+  const activeDisplay = document.getElementById("activeMonthsDisplay");
   msg.className = "message"; msg.innerText = "Recupero storico dal database in corso...";
   container.style.display = "none";
 
@@ -214,7 +214,8 @@ async function loadRangeReport(){
   try {
     const combinedCosts = {};
     struttureVisualizzate.forEach(s => combinedCosts[s] = 0);
-    const activeMonths = new Set(); // Conterrà solo i mesi con importi inseriti
+    const activeMonths = new Set(); // Mesi con almeno un costo > 0
+    const activeLabels = [];
     
     let temp = new Date(start);
     while(temp <= end){
@@ -222,6 +223,7 @@ async function loadRangeReport(){
       const m = String(temp.getMonth()+1).padStart(2, "0");
       const key = `str_cost_v1_${y}_${m}`;
       const cbKey = `${y}-${m}`;
+      const label = `${monthNames[temp.getMonth()]} ${y}`;
 
       const res = await fetch(`/api/get-structure-costs?month_key=${key}`);
       if(res.ok) {
@@ -229,15 +231,14 @@ async function loadRangeReport(){
         let monthHasValue = false;
         
         data.forEach(item => { 
-          if(combinedCosts[item.structure_name] !== undefined) {
-             combinedCosts[item.structure_name] += item.cost;
-          }
-          if(item.cost > 0) monthHasValue = true; // C'è almeno un costo maggiore di zero
+          if(combinedCosts[item.structure_name] !== undefined) combinedCosts[item.structure_name] += item.cost;
+          if(item.cost > 0) monthHasValue = true; 
         });
         
-        // Se in questo mese è stato inserito almeno un costo, lo consideriamo "Attivo"
+        // Se c'è un costo in questo mese, lo consideriamo "valido" per prendere i checkout
         if(monthHasValue) {
             activeMonths.add(cbKey);
+            activeLabels.push(label);
         }
       }
       temp.setMonth(temp.getMonth() + 1);
@@ -245,7 +246,7 @@ async function loadRangeReport(){
 
     if(activeMonths.size === 0) {
       msg.className = "message error"; 
-      msg.innerText = "Nessun importo inserito nel periodo selezionato. Impossibile calcolare una media."; 
+      msg.innerText = "Nessun costo trovato nel database per i mesi selezionati. Impossibile fare la media."; 
       return;
     }
 
@@ -257,23 +258,22 @@ async function loadRangeReport(){
     if(!resRep.ok) throw new Error("Errore scaricamento storico CiaoBooking");
     const reportData = await resRep.json();
 
-    // Mappo quali mesi del report CiaoBooking corrispondono ai mesi in cui abbiamo inserito i costi
+    // Trovo quali indici dell'array CiaoBooking corrispondono ai mesi "validi"
     const activeIndices = [];
     reportData.months.forEach((monthObj, idx) => {
-       if(activeMonths.has(monthObj.key)) {
-          activeIndices.push(idx);
-       }
+       if(activeMonths.has(monthObj.key)) activeIndices.push(idx);
     });
 
+    activeDisplay.innerHTML = `<div class="active-months-badge">✅ Calcolo basato solo sui checkout di: ${activeLabels.join(", ")}</div>`;
     renderTable(reportData.structures, "rangeReportTable", "rangeReportContainer", combinedCosts, activeIndices);
     
     msg.className = "message success"; 
-    msg.innerText = `Report periodo calcolato con successo! (Calcolo basato su ${activeMonths.size} mes${activeMonths.size === 1 ? 'e' : 'i'} effettivi)`;
+    msg.innerText = `Report completato. Sono stati ignorati i mesi senza importi.`;
   } catch (e) { msg.className = "message error"; msg.innerText = "Errore: " + e.message; }
 }
 
 function renderTable(struttureCb, tableId, containerId, externalCosts = null, activeIndices = null){
-  let html = "<table><thead><tr><th>Gruppo Struttura</th><th>Costo Periodo</th><th>Checkouts Totali</th><th>Media / Checkout</th></tr></thead><tbody>";
+  let html = "<table><thead><tr><th>Gruppo Struttura</th><th>Costo Periodo</th><th>Checkouts (Solo mesi attivi)</th><th>Media / Checkout</th></tr></thead><tbody>";
   let tCosti = 0, tCheck = 0;
 
   struttureVisualizzate.forEach(nome => {
@@ -289,10 +289,9 @@ function renderTable(struttureCb, tableId, containerId, externalCosts = null, ac
       const d = struttureCb.find(s => s.struttura === orig);
       if(d) {
         if(activeIndices) {
-           // Se è un report di periodo, somma i checkout SOLO dei mesi in cui c'è un costo salvato
-           activeIndices.forEach(idx => check += d.values[idx] || 0);
+           // SOMMA SOLO I CHECKOUT DEI MESI IN CUI HAI INSERITO IL COSTO!
+           activeIndices.forEach(idx => check += (d.values[idx] || 0));
         } else {
-           // Se è un report mensile singolo
            check += d.total;
         }
       }
