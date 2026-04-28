@@ -63,7 +63,7 @@ td:first-child,th:first-child{text-align:left;}
 
 <div class="box report-section">
   <h1>2. Report Storico (Analisi Periodo)</h1>
-  <p>Somma automaticamente i costi salvati e calcola la media sui checkout in un arco di tempo.</p>
+  <p>Somma i costi salvati e calcola la media sui checkout. <br><strong style="color:#b00020;">Novità:</strong> I mesi vuoti o senza importi verranno ignorati automaticamente per non sballare la media.</p>
   
   <div class="controls">
     <div>
@@ -139,7 +139,7 @@ function getPeriodInfo(yId, mId){
   const m = String(Number(document.getElementById(mId).value) + 1).padStart(2, "0");
   const lastDay = new Date(y, Number(document.getElementById(mId).value) + 1, 0);
   return {
-    key: `str_cost_v1_${y}_${m}`, // Chiave stabile per il database
+    key: `str_cost_v1_${y}_${m}`, 
     from: `${y}-${m}-01`,
     to: `${y}-${m}-${String(lastDay.getDate()).padStart(2, "0")}`
   };
@@ -151,40 +151,55 @@ async function loadCosts(){
   document.getElementById("reportContainer").style.display = "none";
   try {
     const res = await fetch(`/api/get-structure-costs?month_key=${p.key}`);
+    if(!res.ok) return; 
+    
     const data = await res.json();
     data.forEach(item => {
       const input = document.querySelector(`input[data-name="${item.structure_name}"]`);
       if(input) input.value = item.cost;
     });
-  } catch (e) { console.error(e); }
+  } catch (e) { console.error("Errore lettura costi:", e); }
 }
 
 async function salvaECalcola(){
   const msg = document.getElementById("message");
   const p = getPeriodInfo("yearSelect", "monthSelect");
-  msg.className = "message"; msg.innerText = "Salvataggio e calcolo...";
+  msg.className = "message"; msg.innerText = "Salvataggio nel database in corso...";
 
   try {
-    const promises = Array.from(document.querySelectorAll('.cost-item input')).map(inp => {
-      return fetch('/api/save-structure-cost', {
+    const inputs = document.querySelectorAll('.cost-item input');
+    
+    for (let inp of inputs) {
+      const val = parseFloat(inp.value) || 0;
+      const res = await fetch('/api/save-structure-cost', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ structure_name: inp.getAttribute('data-name'), month_key: p.key, cost: parseFloat(inp.value) || 0 })
+        body: JSON.stringify({ structure_name: inp.getAttribute('data-name'), month_key: p.key, cost: val })
       });
-    });
-    await Promise.all(promises);
+      
+      if(!res.ok) {
+        throw new Error(`Errore di salvataggio. Riprova.`);
+      }
+    }
 
-    const res = await fetch(`/api/report?from=${p.from}&to=${p.to}`);
-    const data = await res.json();
+    const resCb = await fetch(`/api/report?from=${p.from}&to=${p.to}`);
+    if(!resCb.ok) throw new Error("Errore durante lo scaricamento da CiaoBooking.");
+    
+    const data = await resCb.json();
     renderTable(data.structures, "reportTable", "reportContainer");
-    msg.className = "message success"; msg.innerText = "Dati salvati correttamente!";
-  } catch (err) { msg.className = "message error"; msg.innerText = "Errore: " + err.message; }
+    
+    msg.className = "message success"; 
+    msg.innerText = "Dati memorizzati online e report calcolato correttamente!";
+  } catch (err) { 
+    msg.className = "message error"; 
+    msg.innerText = err.message; 
+  }
 }
 
 async function loadRangeReport(){
   const msg = document.getElementById("rangeMessage");
   const container = document.getElementById("rangeReportContainer");
-  msg.className = "message"; msg.innerText = "Generazione report di periodo...";
+  msg.className = "message"; msg.innerText = "Recupero storico dal database in corso...";
   container.style.display = "none";
 
   const fYear = Number(document.getElementById("rangeFromYear").value);
@@ -199,14 +214,39 @@ async function loadRangeReport(){
   try {
     const combinedCosts = {};
     struttureVisualizzate.forEach(s => combinedCosts[s] = 0);
+    const activeMonths = new Set(); // Conterrà solo i mesi con importi inseriti
     
     let temp = new Date(start);
     while(temp <= end){
-      const key = `str_cost_v1_${temp.getFullYear()}_${String(temp.getMonth()+1).padStart(2, "0")}`;
+      const y = temp.getFullYear();
+      const m = String(temp.getMonth()+1).padStart(2, "0");
+      const key = `str_cost_v1_${y}_${m}`;
+      const cbKey = `${y}-${m}`;
+
       const res = await fetch(`/api/get-structure-costs?month_key=${key}`);
-      const data = await res.json();
-      data.forEach(item => { if(combinedCosts[item.structure_name] !== undefined) combinedCosts[item.structure_name] += item.cost; });
+      if(res.ok) {
+        const data = await res.json();
+        let monthHasValue = false;
+        
+        data.forEach(item => { 
+          if(combinedCosts[item.structure_name] !== undefined) {
+             combinedCosts[item.structure_name] += item.cost;
+          }
+          if(item.cost > 0) monthHasValue = true; // C'è almeno un costo maggiore di zero
+        });
+        
+        // Se in questo mese è stato inserito almeno un costo, lo consideriamo "Attivo"
+        if(monthHasValue) {
+            activeMonths.add(cbKey);
+        }
+      }
       temp.setMonth(temp.getMonth() + 1);
+    }
+
+    if(activeMonths.size === 0) {
+      msg.className = "message error"; 
+      msg.innerText = "Nessun importo inserito nel periodo selezionato. Impossibile calcolare una media."; 
+      return;
     }
 
     const lastDay = new Date(tYear, tMonth + 1, 0);
@@ -214,14 +254,25 @@ async function loadRangeReport(){
     const toStr = `${tYear}-${String(tMonth+1).padStart(2,"0")}-${String(lastDay.getDate()).padStart(2,"0")}`;
     
     const resRep = await fetch(`/api/report?from=${fromStr}&to=${toStr}`);
+    if(!resRep.ok) throw new Error("Errore scaricamento storico CiaoBooking");
     const reportData = await resRep.json();
 
-    renderTable(reportData.structures, "rangeReportTable", "rangeReportContainer", combinedCosts);
-    msg.className = "message success"; msg.innerText = "Report periodo caricato!";
+    // Mappo quali mesi del report CiaoBooking corrispondono ai mesi in cui abbiamo inserito i costi
+    const activeIndices = [];
+    reportData.months.forEach((monthObj, idx) => {
+       if(activeMonths.has(monthObj.key)) {
+          activeIndices.push(idx);
+       }
+    });
+
+    renderTable(reportData.structures, "rangeReportTable", "rangeReportContainer", combinedCosts, activeIndices);
+    
+    msg.className = "message success"; 
+    msg.innerText = `Report periodo calcolato con successo! (Calcolo basato su ${activeMonths.size} mes${activeMonths.size === 1 ? 'e' : 'i'} effettivi)`;
   } catch (e) { msg.className = "message error"; msg.innerText = "Errore: " + e.message; }
 }
 
-function renderTable(struttureCb, tableId, containerId, externalCosts = null){
+function renderTable(struttureCb, tableId, containerId, externalCosts = null, activeIndices = null){
   let html = "<table><thead><tr><th>Gruppo Struttura</th><th>Costo Periodo</th><th>Checkouts Totali</th><th>Media / Checkout</th></tr></thead><tbody>";
   let tCosti = 0, tCheck = 0;
 
@@ -236,7 +287,15 @@ function renderTable(struttureCb, tableId, containerId, externalCosts = null){
     let check = 0;
     mapping[nome].forEach(orig => {
       const d = struttureCb.find(s => s.struttura === orig);
-      if(d) check += d.total;
+      if(d) {
+        if(activeIndices) {
+           // Se è un report di periodo, somma i checkout SOLO dei mesi in cui c'è un costo salvato
+           activeIndices.forEach(idx => check += d.values[idx] || 0);
+        } else {
+           // Se è un report mensile singolo
+           check += d.total;
+        }
+      }
     });
 
     const media = check > 0 ? costo / check : 0;
