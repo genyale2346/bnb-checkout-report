@@ -42,6 +42,7 @@ const ACTIVE_ROOMS = [
 
 // --- ROTTE PER IL DATABASE (SUPABASE) ---
 
+// 1. Lavanderia
 app.post("/api/save-laundry", async (req, res) => {
   try {
     const { month_key, cost } = req.body;
@@ -65,6 +66,34 @@ app.get("/api/get-laundry", async (req, res) => {
       .single();
     if (error && error.code !== 'PGRST116') throw error; 
     res.json({ cost: data ? data.cost : null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Costi Strutture (NUOVO)
+app.post("/api/save-structure-cost", async (req, res) => {
+  try {
+    const { structure_name, month_key, cost } = req.body;
+    const { error } = await supabase
+      .from('structure_costs')
+      .upsert({ structure_name, month_key, cost }, { onConflict: 'structure_name,month_key' });
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/get-structure-costs", async (req, res) => {
+  try {
+    const { month_key } = req.query;
+    const { data, error } = await supabase
+      .from('structure_costs')
+      .select('structure_name, cost')
+      .eq('month_key', month_key);
+    if (error) throw error;
+    res.json(data || []);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
