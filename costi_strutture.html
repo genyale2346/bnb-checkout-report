@@ -36,7 +36,9 @@ td:first-child,th:first-child{text-align:left;}
 
 <div class="box">
   <h1>Analisi Costi per Gruppo Struttura</h1>
-  <p>Inserisci i costi specifici. Il gruppo <strong>Brugal</strong> include Magica Napoli, Storico e Foria.</p>
+  <p>I gruppi sono così composti:<br>
+  - <strong>Brugal</strong>: Magica Napoli, Storico e Foria.<br>
+  - <strong>GG-Grow</strong>: S. Brigida e Terrazza.</p>
 
   <div class="controls">
     <div>
@@ -76,17 +78,16 @@ td:first-child,th:first-child{text-align:left;}
 </div>
 
 <script>
-// Lista nomi che vuoi vedere a video (Brugal accorpa le 3 vecchie)
+// Lista nomi raggruppati che vedrai a video
 const struttureVisualizzate = [
   "Brugal",
   "GG-ROOM - San Giovanni",
-  "S. Brigida GG-Grow",
-  "Terrazza GG-Grow",
+  "GG-Grow",
   "Tutta nata storia",
   "Una notte a napoli"
 ];
 
-// Mappatura per il calcolo dei checkout
+// Mappatura per il calcolo dei checkout (somma automatica)
 const mapping = {
   "Brugal": [
     "Yes I Know My Room - Magica Napoli",
@@ -94,8 +95,10 @@ const mapping = {
     "Yes I Know My Room - Foria"
   ],
   "GG-ROOM - San Giovanni": ["GG-ROOM - San Giovanni"],
-  "S. Brigida GG-Grow": ["S. Brigida GG-Grow"],
-  "Terrazza GG-Grow": ["Terrazza GG-Grow"],
+  "GG-Grow": [
+    "S. Brigida GG-Grow",
+    "Terrazza GG-Grow"
+  ],
   "Tutta nata storia": ["Tutta nata storia"],
   "Una notte a napoli": ["Una notte a napoli"]
 };
@@ -119,7 +122,7 @@ function getSelectedPeriod(){
     year, month,
     from: `${y}-${m1}-${d1}`,
     to: `${y}-${m2}-${d2}`,
-    month_key: `costi_aggiornati_${y}_${m1}`, // Chiave diversa per evitare conflitti con vecchi test
+    month_key: `costi_finali_${y}_${m1}`, 
     title: `${monthNames[month]} ${year}`
   };
 }
@@ -170,7 +173,7 @@ async function salvaECalcola(){
   const msg = document.getElementById("message");
   const p = getSelectedPeriod();
   msg.className = "message";
-  msg.innerText = "Salvataggio e calcolo dei checkout in corso...";
+  msg.innerText = "Salvataggio e calcolo in corso...";
 
   try {
     const inputs = document.querySelectorAll('.cost-item input');
@@ -192,7 +195,7 @@ async function salvaECalcola(){
     generaTabella(reportData.structures, p.title);
     
     msg.className = "message success";
-    msg.innerText = "Operazione completata con successo!";
+    msg.innerText = "Report aggiornato!";
   } catch (err) {
     msg.className = "message error";
     msg.innerText = "Errore: " + err.message;
@@ -202,7 +205,7 @@ async function salvaECalcola(){
 function generaTabella(struttureCiaobooking, title){
   document.getElementById("reportTitle").innerText = title;
   const container = document.getElementById("reportContainer");
-  let html = "<table><thead><tr><th>Struttura / Gruppo</th><th>Costo Inserito</th><th>Checkouts Totali</th><th>Costo Medio per Checkout</th></tr></thead><tbody>";
+  let html = "<table><thead><tr><th>Gruppo Struttura</th><th>Costo Inserito</th><th>Checkouts (Somma)</th><th>Media per Checkout</th></tr></thead><tbody>";
 
   let totaleCosti = 0;
   let totaleCheckout = 0;
@@ -211,9 +214,8 @@ function generaTabella(struttureCiaobooking, title){
     const inp = document.querySelector(`input[data-name="${nomeVisualizzato}"]`);
     const costo = parseFloat(inp.value) || 0;
     
-    // Somma i checkout di tutte le strutture che appartengono a questo gruppo
     let checkoutDelGruppo = 0;
-    const nomiOriginali = mapping[nomeVisualizzato] || [nomeVisualizzato];
+    const nomiOriginali = mapping[nomeVisualizzato];
     
     nomiOriginali.forEach(nomeOrig => {
       const datiCb = struttureCiaobooking.find(s => s.struttura === nomeOrig);
