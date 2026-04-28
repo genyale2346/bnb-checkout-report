@@ -1,118 +1,505 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Report Checkout e Lavanderia</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; background-color: #f4f4f9; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h2 { color: #333; margin-top: 0; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        select, input { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
-        button:hover { background-color: #0056b3; }
-        .result { font-size: 1.2em; font-weight: bold; color: #28a745; text-align: center; margin-top: 10px; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Checkout e Lavanderia</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:1400px;margin:auto;padding:30px;background:#f4f4f4;}
+.box{background:white;padding:25px;border-radius:12px;box-shadow:0 0 10px rgba(0,0,0,0.08);margin-bottom:30px;}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end;}
+label{display:block;font-weight:bold;margin-bottom:4px;}
+input,button,select{padding:10px;font-size:16px;}
+button{background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;}
+button.secondary{background:#198754;}
+button.range{background:#6f42c1;}
+table{width:100%;border-collapse:collapse;margin-top:15px;background:white;}
+th,td{border:1px solid #ddd;padding:10px;text-align:center;}
+th{background:#efefef;}
+td:first-child,th:first-child,td:nth-child(2),th:nth-child(2){text-align:left;}
+.message{margin-top:15px;font-weight:bold;}
+.error{color:#b00020;}
+.success{color:#198754;}
+.summary{margin-top:20px;padding:15px;background:#eef6ff;border-radius:8px;}
+.section-title{margin-top:30px;}
+.small-note{font-size:13px;color:#555;margin-top:5px;}
+hr{margin:35px 0;}
+</style>
 </head>
 <body>
 
-<div class="card">
-    <h2>Seleziona Periodo</h2>
-    <label>Mese</label>
-    <select id="monthSelect" onchange="loadSavedLaundryCost()">
-        <option value="1">Gennaio</option>
-        <option value="2">Febbraio</option>
-        <option value="3">Marzo</option>
-        <option value="4">Aprile</option>
-        <option value="5">Maggio</option>
-        <option value="6">Giugno</option>
-        <option value="7">Luglio</option>
-        <option value="8">Agosto</option>
-        <option value="9">Settembre</option>
-        <option value="10">Ottobre</option>
-        <option value="11">Novembre</option>
-        <option value="12">Dicembre</option>
-    </select>
-    
-    <label>Anno</label>
-    <select id="yearSelect" onchange="loadSavedLaundryCost()">
-        <option value="2024">2024</option>
-        <option value="2025">2025</option>
-        <option value="2026" selected>2026</option>
-    </select>
-</div>
+<div class="box">
+  <h1>Report Checkout e Lavanderia</h1>
 
-<div class="card">
-    <h2>Costi Lavanderia</h2>
-    <label>Costo Totale (€)</label>
-    <input type="number" id="laundryCost" placeholder="Inserisci il costo..." step="0.01">
-    <button onclick="handleSave()">Salva e Calcola</button>
-    <div id="statusMessage" style="font-size: 0.8em; color: #666; text-align: center; margin-top: 5px;"></div>
+  <h2>Report mensile singolo</h2>
+
+  <div class="controls">
+    <div>
+      <label>Anno</label>
+      <select id="yearSelect" onchange="loadSavedLaundryCost()"></select>
+    </div>
+
+    <div>
+      <label>Mese</label>
+      <select id="monthSelect" onchange="loadSavedLaundryCost()">
+        <option value="0">Gennaio</option>
+        <option value="1">Febbraio</option>
+        <option value="2">Marzo</option>
+        <option value="3">Aprile</option>
+        <option value="4">Maggio</option>
+        <option value="5">Giugno</option>
+        <option value="6">Luglio</option>
+        <option value="7">Agosto</option>
+        <option value="8">Settembre</option>
+        <option value="9">Ottobre</option>
+        <option value="10">Novembre</option>
+        <option value="11">Dicembre</option>
+      </select>
+    </div>
+
+    <div>
+      <label>Costo lavanderia totale €</label>
+      <input type="number" id="laundryCost" step="0.01" placeholder="es. 900">
+      <div class="small-note" id="saveStatus">I dati sono sincronizzati online.</div>
+    </div>
+
+    <button onclick="loadReport()">Calcola mese</button>
+    <button class="secondary" onclick="downloadCSV()">Scarica CSV mese</button>
+  </div>
+
+  <div id="message" class="message"></div>
+  <div id="summary" class="summary" style="display:none;"></div>
+
+  <h2 class="section-title">Report mensile per camere</h2>
+  <div id="roomTable"></div>
+
+  <h2 class="section-title">Report mensile per strutture</h2>
+  <div id="structureTable"></div>
+
+  <hr>
+
+  <h2>Report da mese a mese</h2>
+  <p>Qui puoi vedere una media su più mesi. Il sistema somma i costi lavanderia che hai salvato mese per mese.</p>
+
+  <div class="controls">
+    <div>
+      <label>Anno da</label>
+      <select id="rangeFromYear"></select>
+    </div>
+
+    <div>
+      <label>Mese da</label>
+      <select id="rangeFromMonth"></select>
+    </div>
+
+    <div>
+      <label>Anno a</label>
+      <select id="rangeToYear"></select>
+    </div>
+
+    <div>
+      <label>Mese a</label>
+      <select id="rangeToMonth"></select>
+    </div>
+
+    <button class="range" onclick="loadRangeReport()">Calcola periodo</button>
+    <button class="secondary" onclick="downloadRangeCSV()">Scarica CSV periodo</button>
+  </div>
+
+  <div id="rangeMessage" class="message"></div>
+  <div id="rangeSummary" class="summary" style="display:none;"></div>
+
+  <h2 class="section-title">Report periodo per camere</h2>
+  <div id="rangeRoomTable"></div>
+
+  <h2 class="section-title">Report periodo per strutture</h2>
+  <div id="rangeStructureTable"></div>
 </div>
 
 <script>
-    // Funzione per capire quale mese/anno è selezionato
-    function getSelectedPeriod() {
-        return {
-            month: document.getElementById("monthSelect").value,
-            year: document.getElementById("yearSelect").value
-        };
+const monthNames = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+let currentData = null;
+let currentLaundryCost = 0;
+let currentQuotaPerCamera = 0;
+
+let currentRangeData = null;
+let currentRangeLaundryCost = 0;
+let currentRangeQuotaPerCamera = 0;
+let currentRangeMonthsCount = 0;
+
+function euro(value){
+  return new Intl.NumberFormat("it-IT", {style:"currency",currency:"EUR"}).format(value || 0);
+}
+
+function formatDateLocal(date){
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function fillYears(select){
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  for(let y = currentYear - 3; y <= currentYear + 1; y++){
+    const option = document.createElement("option");
+    option.value = y;
+    option.textContent = y;
+    if(y === currentYear) option.selected = true;
+    select.appendChild(option);
+  }
+}
+
+function fillMonths(select){
+  monthNames.forEach((name, index) => {
+    const option = document.createElement("option");
+    option.value = index;
+    option.textContent = name;
+    select.appendChild(option);
+  });
+}
+
+function getMonthStorageKey(year, month){
+  return `lavanderia_${year}_${String(month + 1).padStart(2, "0")}`;
+}
+
+function getSelectedPeriod(){
+  const year = Number(document.getElementById("yearSelect").value);
+  const month = Number(document.getElementById("monthSelect").value);
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+
+  return {year,month,from:formatDateLocal(firstDay),to:formatDateLocal(lastDay)};
+}
+
+// --- NUOVE FUNZIONI SYNC ONLINE ---
+
+async function saveLaundryCost(){
+  const p = getSelectedPeriod();
+  const cost = document.getElementById("laundryCost").value;
+  const status = document.getElementById("saveStatus");
+  const month_key = getMonthStorageKey(p.year, p.month);
+
+  status.innerText = "Salvataggio online...";
+  try {
+    await fetch('/api/save-laundry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ month_key, cost: parseFloat(cost) || 0 })
+    });
+    status.innerText = "Sincronizzato correttamente.";
+  } catch (e) {
+    status.innerText = "Errore sincronizzazione!";
+  }
+}
+
+async function loadSavedLaundryCost(){
+  const p = getSelectedPeriod();
+  const month_key = getMonthStorageKey(p.year, p.month);
+  const input = document.getElementById("laundryCost");
+  
+  input.value = ""; 
+  try {
+    const res = await fetch(`/api/get-laundry?month_key=${month_key}`);
+    const data = await res.json();
+    input.value = data.cost !== null ? data.cost : "";
+  } catch (e) {
+    console.error("Errore caricamento dati online");
+  }
+}
+
+async function sumSavedLaundryCosts(months){
+  const promises = months.map(async (item) => {
+    const month_key = getMonthStorageKey(item.year, item.month);
+    try {
+      const res = await fetch(`/api/get-laundry?month_key=${month_key}`);
+      const data = await res.json();
+      return parseFloat(data.cost || "0");
+    } catch (e) { return 0; }
+  });
+  const results = await Promise.all(promises);
+  return results.reduce((a, b) => a + b, 0);
+}
+
+// --- FINE FUNZIONI SYNC ---
+
+function setupSelectors(){
+  fillYears(document.getElementById("yearSelect"));
+  fillMonths(document.getElementById("monthSelect"));
+
+  fillYears(document.getElementById("rangeFromYear"));
+  fillYears(document.getElementById("rangeToYear"));
+  fillMonths(document.getElementById("rangeFromMonth"));
+  fillMonths(document.getElementById("rangeToMonth"));
+
+  const today = new Date();
+  document.getElementById("monthSelect").value = today.getMonth();
+  document.getElementById("rangeFromMonth").value = 0;
+  document.getElementById("rangeToMonth").value = today.getMonth();
+
+  loadSavedLaundryCost();
+}
+
+function buildRangeMonths(fromYear, fromMonth, toYear, toMonth){
+  const months = [];
+  let d = new Date(fromYear, fromMonth, 1);
+  const end = new Date(toYear, toMonth, 1);
+
+  while(d <= end){
+    months.push({year:d.getFullYear(), month:d.getMonth()});
+    d.setMonth(d.getMonth() + 1);
+  }
+
+  return months;
+}
+
+function getRangePeriod(){
+  const fromYear = Number(document.getElementById("rangeFromYear").value);
+  const fromMonth = Number(document.getElementById("rangeFromMonth").value);
+  const toYear = Number(document.getElementById("rangeToYear").value);
+  const toMonth = Number(document.getElementById("rangeToMonth").value);
+
+  const firstDay = new Date(fromYear, fromMonth, 1);
+  const lastDay = new Date(toYear, toMonth + 1, 0);
+
+  return {
+    fromYear,fromMonth,toYear,toMonth,
+    from:formatDateLocal(firstDay),
+    to:formatDateLocal(lastDay),
+    months:buildRangeMonths(fromYear, fromMonth, toYear, toMonth)
+  };
+}
+
+async function loadReport(){
+  const p = getSelectedPeriod();
+  const laundryCost = parseFloat(document.getElementById("laundryCost").value || "0");
+  await saveLaundryCost(); // Aspetta che salvi online
+  await loadGenericReport({
+    from:p.from,
+    to:p.to,
+    laundryCost,
+    messageId:"message",
+    summaryId:"summary",
+    roomTableId:"roomTable",
+    structureTableId:"structureTable",
+    title:`${monthNames[p.month]} ${p.year}`,
+    setGlobals:true
+  });
+}
+
+async function loadRangeReport(){
+  const p = getRangePeriod();
+
+  if(new Date(p.from) > new Date(p.to)){
+    const msg = document.getElementById("rangeMessage");
+    msg.className = "message error";
+    msg.innerText = "Il mese iniziale non può essere successivo al mese finale.";
+    return;
+  }
+
+  const laundryCost = await sumSavedLaundryCosts(p.months); // Carica la somma dal database
+  currentRangeMonthsCount = p.months.length;
+
+  await loadGenericReport({
+    from:p.from,
+    to:p.to,
+    laundryCost,
+    messageId:"rangeMessage",
+    summaryId:"rangeSummary",
+    roomTableId:"rangeRoomTable",
+    structureTableId:"rangeStructureTable",
+    title:`${monthNames[p.fromMonth]} ${p.fromYear} - ${monthNames[p.toMonth]} ${p.toYear}`,
+    setRangeGlobals:true,
+    monthsCount:p.months.length
+  });
+}
+
+async function loadGenericReport(opts){
+  const message = document.getElementById(opts.messageId);
+  const summary = document.getElementById(opts.summaryId);
+  const roomTable = document.getElementById(opts.roomTableId);
+  const structureTable = document.getElementById(opts.structureTableId);
+
+  message.className = "message";
+  message.innerText = "Caricamento dati da CiaoBooking...";
+  roomTable.innerHTML = "";
+  structureTable.innerHTML = "";
+  summary.style.display = "none";
+
+  try{
+    const res = await fetch(`/api/report?from=${opts.from}&to=${opts.to}`);
+    const data = await res.json();
+
+    if(!res.ok){
+      throw new Error(data.error || "Errore sconosciuto");
     }
 
-    // Funzione per SALVARE il costo su Supabase
-    async function handleSave() {
-        const p = getSelectedPeriod();
-        const costValue = document.getElementById("laundryCost").value;
-        const month_key = `lavanderia_${p.year}_${p.month}`;
-        const status = document.getElementById("statusMessage");
+    const numeroCamere = data.rows.length;
+    const quotaPerCamera = numeroCamere > 0 ? opts.laundryCost / numeroCamere : 0;
 
-        status.innerText = "Salvataggio in corso...";
-
-        try {
-            const response = await fetch('/api/save-laundry', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    month_key: month_key, 
-                    cost: parseFloat(costValue) || 0 
-                })
-            });
-
-            if (response.ok) {
-                status.innerText = "Dato salvato con successo!";
-                setTimeout(() => { status.innerText = ""; }, 3000);
-            } else {
-                status.innerText = "Errore durante il salvataggio.";
-            }
-        } catch (err) {
-            console.error(err);
-            status.innerText = "Errore di connessione.";
-        }
+    if(opts.setGlobals){
+      currentData = data;
+      currentLaundryCost = opts.laundryCost;
+      currentQuotaPerCamera = quotaPerCamera;
     }
 
-    // Funzione per CARICARE il costo da Supabase
-    async function loadSavedLaundryCost() {
-        const p = getSelectedPeriod();
-        const month_key = `lavanderia_${p.year}_${p.month}`;
-        const inputField = document.getElementById("laundryCost");
-        
-        inputField.value = ""; // Pulisce mentre carica
-
-        try {
-            const response = await fetch(`/api/get-laundry?month_key=${month_key}`);
-            const data = await response.json();
-            
-            if (data && data.cost !== null) {
-                inputField.value = data.cost;
-            }
-        } catch (err) {
-            console.error("Errore nel caricamento:", err);
-        }
+    if(opts.setRangeGlobals){
+      currentRangeData = data;
+      currentRangeLaundryCost = opts.laundryCost;
+      currentRangeQuotaPerCamera = quotaPerCamera;
     }
 
-    // Carica i dati appena si apre la pagina
-    window.onload = loadSavedLaundryCost;
+    renderSummary(data, opts.laundryCost, quotaPerCamera, opts.title, opts.summaryId, opts.monthsCount || 1);
+    renderRoomTable(data, quotaPerCamera, opts.roomTableId);
+    renderStructureTable(data, quotaPerCamera, opts.structureTableId);
+
+    message.className = "message success";
+    message.innerText = "Report caricato correttamente.";
+  }catch(err){
+    message.className = "message error";
+    message.innerText = "Errore: " + err.message;
+  }
+}
+
+function renderSummary(data, laundryCost, quotaPerCamera, title, summaryId, monthsCount){
+  const summary = document.getElementById(summaryId);
+  summary.style.display = "block";
+
+  summary.innerHTML = `
+    <table>
+      <tr><td><strong>Periodo</strong></td><td>${title}</td></tr>
+      <tr><td><strong>Mesi conteggiati</strong></td><td>${monthsCount}</td></tr>
+      <tr><td><strong>Totale checkout</strong></td><td>${data.totalCheckout}</td></tr>
+      <tr><td><strong>Numero camere conteggiate</strong></td><td>${data.rows.length}</td></tr>
+      <tr><td><strong>Costo lavanderia totale periodo</strong></td><td>${euro(laundryCost)}</td></tr>
+      <tr><td><strong>Quota lavanderia per camera</strong></td><td><strong>${euro(quotaPerCamera)}</strong></td></tr>
+    </table>
+  `;
+}
+
+function renderRoomTable(data, quotaPerCamera, tableId){
+  let html = "<table><thead><tr><th>Struttura</th><th>Camera</th>";
+
+  data.months.forEach(m => html += `<th>${m.label}</th>`);
+  html += "<th>Totale checkout</th><th>Quota lavanderia camera</th><th>Costo medio lavata camera</th></tr></thead><tbody>";
+
+  if(data.rows.length === 0){
+    html += `<tr><td colspan="${data.months.length + 5}">Nessun checkout trovato nel periodo selezionato.</td></tr>`;
+  }
+
+  data.rows.forEach(row => {
+    const costoMedioLavata = row.total > 0 ? quotaPerCamera / row.total : 0;
+
+    html += `<tr><td>${row.struttura}</td><td>${row.camera}</td>`;
+    row.values.forEach(v => html += `<td>${v}</td>`);
+    html += `<td><strong>${row.total}</strong></td>`;
+    html += `<td><strong>${euro(quotaPerCamera)}</strong></td>`;
+    html += `<td><strong>${euro(costoMedioLavata)}</strong></td></tr>`;
+  });
+  html += "</tbody></table>";
+  document.getElementById(tableId).innerHTML = html;
+}
+
+function renderStructureTable(data, quotaPerCamera, tableId){
+  const camerePerStruttura = {};
+  data.rows.forEach(row => {
+    if(!camerePerStruttura[row.struttura]) camerePerStruttura[row.struttura] = 0;
+    camerePerStruttura[row.struttura]++;
+  });
+
+  let html = "<table><thead><tr><th>Struttura</th>";
+  data.months.forEach(m => html += `<th>${m.label}</th>`);
+  html += "<th>Totale checkout</th><th>Camere conteggiate</th><th>Quota lavanderia struttura</th><th>Costo medio lavata struttura</th></tr></thead><tbody>";
+
+  if(!data.structures || data.structures.length === 0){
+    html += `<tr><td colspan="${data.months.length + 5}">Nessuna struttura trovata nel periodo selezionato.</td></tr>`;
+  }
+
+  (data.structures || []).forEach(row => {
+    const numeroCamereStruttura = camerePerStruttura[row.struttura] || 0;
+    const quotaStruttura = quotaPerCamera * numeroCamereStruttura;
+    const costoMedioStruttura = row.total > 0 ? quotaStruttura / row.total : 0;
+
+    html += `<tr><td>${row.struttura}</td>`;
+    row.values.forEach(v => html += `<td>${v}</td>`);
+    html += `<td><strong>${row.total}</strong></td>`;
+    html += `<td><strong>${numeroCamereStruttura}</strong></td>`;
+    html += `<td><strong>${euro(quotaStruttura)}</strong></td>`;
+    html += `<td><strong>${euro(costoMedioStruttura)}</strong></td></tr>`;
+  });
+  html += "</tbody></table>";
+  document.getElementById(tableId).innerHTML = html;
+}
+
+function buildCSV(data, laundryCost, quotaPerCamera, filePrefix){
+  const lines = [];
+  lines.push(filePrefix);
+  lines.push("");
+  lines.push("REPORT PER CAMERE");
+  lines.push(["Struttura","Camera",...data.months.map(m => m.label),"Totale checkout","Quota lavanderia camera","Costo medio lavata camera"].join(";"));
+  data.rows.forEach(row => {
+    const costoMedioLavata = row.total > 0 ? quotaPerCamera / row.total : 0;
+    lines.push([row.struttura,row.camera,...row.values,row.total,quotaPerCamera.toFixed(2).replace(".", ","),costoMedioLavata.toFixed(2).replace(".", ",")].join(";"));
+  });
+  const camerePerStruttura = {};
+  data.rows.forEach(row => {
+    if(!camerePerStruttura[row.struttura]) camerePerStruttura[row.struttura] = 0;
+    camerePerStruttura[row.struttura]++;
+  });
+  lines.push("");
+  lines.push("REPORT PER STRUTTURE");
+  lines.push(["Struttura",...data.months.map(m => m.label),"Totale checkout","Camere conteggiate","Quota lavanderia struttura","Costo medio lavata struttura"].join(";"));
+  (data.structures || []).forEach(row => {
+    const numeroCamereStruttura = camerePerStruttura[row.struttura] || 0;
+    const quotaStruttura = quotaPerCamera * numeroCamereStruttura;
+    const costoMedioStruttura = row.total > 0 ? quotaStruttura / row.total : 0;
+
+    lines.push([row.struttura,...row.values,row.total,numeroCamereStruttura,quotaStruttura.toFixed(2).replace(".", ","),costoMedioStruttura.toFixed(2).replace(".", ",")].join(";"));
+  });
+  lines.push("");
+  lines.push(["Totale checkout",data.totalCheckout].join(";"));
+  lines.push(["Numero camere conteggiate",data.rows.length].join(";"));
+  lines.push(["Costo lavanderia totale periodo",laundryCost.toFixed(2).replace(".", ",")].join(";"));
+  lines.push(["Quota lavanderia per camera",quotaPerCamera.toFixed(2).replace(".", ",")].join(";"));
+
+  return lines.join("\n");
+}
+
+function downloadTextCSV(text, filename){
+  const blob = new Blob([text], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadCSV(){
+  if(!currentData){
+    alert("Prima calcola il report mensile.");
+    return;
+  }
+
+  const p = getSelectedPeriod();
+  const title = `REPORT ${monthNames[p.month]} ${p.year}`;
+  const csv = buildCSV(currentData, currentLaundryCost, currentQuotaPerCamera, title);
+  downloadTextCSV(csv, `report-checkout-lavanderia-${p.year}-${String(p.month + 1).padStart(2, "0")}.csv`);
+}
+
+function downloadRangeCSV(){
+  if(!currentRangeData){
+    alert("Prima calcola il report periodo.");
+    return;
+  }
+
+  const p = getRangePeriod();
+  const title = `REPORT ${monthNames[p.fromMonth]} ${p.fromYear} - ${monthNames[p.toMonth]} ${p.toYear}`;
+  const csv = buildCSV(currentRangeData, currentRangeLaundryCost, currentRangeQuotaPerCamera, title);
+  downloadTextCSV(csv, `report-checkout-lavanderia-periodo-${p.fromYear}-${String(p.fromMonth + 1).padStart(2, "0")}_${p.toYear}-${String(p.toMonth + 1).padStart(2, "0")}.csv`);
+}
+
+setupSelectors();
 </script>
 
 </body>
